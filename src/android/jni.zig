@@ -444,7 +444,7 @@ pub fn callInstanceByID(comptime F: type, env: *JNIEnv, obj: jobject, mid: jmeth
         jlong => tbl.CallLongMethodA.?(env, obj, mid, argp),
         jfloat => tbl.CallFloatMethodA.?(env, obj, mid, argp),
         jdouble => tbl.CallDoubleMethodA.?(env, obj, mid, argp),
-        else => tbl.CallObjectMethodA.?(env, obj, mid, argp),
+        else => objectReturn(Ret, tbl.CallObjectMethodA.?(env, obj, mid, argp)),
     };
 }
 
@@ -466,7 +466,7 @@ pub fn callStaticByID(comptime F: type, env: *JNIEnv, clazz: jclass, mid: jmetho
         jlong => tbl.CallStaticLongMethodA.?(env, clazz, mid, argp),
         jfloat => tbl.CallStaticFloatMethodA.?(env, clazz, mid, argp),
         jdouble => tbl.CallStaticDoubleMethodA.?(env, clazz, mid, argp),
-        else => tbl.CallStaticObjectMethodA.?(env, clazz, mid, argp),
+        else => objectReturn(Ret, tbl.CallStaticObjectMethodA.?(env, clazz, mid, argp)),
     };
 }
 
@@ -482,8 +482,34 @@ fn toJValue(comptime T: type, v: T) jvalue {
         jlong => .{ .j = v },
         jfloat => .{ .f = v },
         jdouble => .{ .d = v },
-        else => .{ .l = v },
+        else => blk: {
+            if (comptime isClassRef(T)) break :blk .{ .l = v.handle };
+            break :blk .{ .l = v };
+        },
     };
+}
+
+/// A struct opts into being a typed Java object reference by declaring
+///     pub const java_sig = "Lfoo/bar/Baz;";
+/// and exposing a single field `handle: jobject`.
+pub fn isClassRef(comptime T: type) bool {
+    if (@typeInfo(T) != .@"struct") return false;
+    return @hasDecl(T, "java_sig");
+}
+
+/// Convenience: declare a typed handle to a Java class.
+///     const Vibrator = jni.ClassRef("Landroid/os/Vibrator;");
+pub fn ClassRef(comptime sig: [:0]const u8) type {
+    return extern struct {
+        handle: jobject,
+        pub const java_sig = sig;
+    };
+}
+
+inline fn objectReturn(comptime Ret: type, raw: jobject) Ret {
+    if (Ret == jobject) return raw;
+    if (comptime isClassRef(Ret)) return .{ .handle = raw };
+    @compileError("cannot construct " ++ @typeName(Ret) ++ " from jobject");
 }
 
 /// One-shot instance call: looks up class + method, invokes, does NOT delete the class ref.
