@@ -46,4 +46,41 @@ pub fn build(b: *std.Build) void {
     android_module.addImport("android_builtin", android_builtin_module);
 
     android_module.linkSystemLibrary("log", .{});
+
+    // Classfile parser — pure-Zig `.class` / `.jar` reader used by binding
+    // generation. Independent of the `android` module so it can be consumed
+    // standalone (e.g. by host-side build-time tooling).
+    const classfile_module = b.addModule("classfile", .{
+        .root_source_file = b.path("src/classfile/classfile.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Host-side `classdump` CLI: `zig build classdump -- path/to/Foo.class`.
+    const classdump_exe = b.addExecutable(.{
+        .name = "classdump",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/classdump/main.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "classfile", .module = classfile_module }},
+        }),
+    });
+    b.installArtifact(classdump_exe);
+    const run_classdump = b.addRunArtifact(classdump_exe);
+    if (b.args) |args| run_classdump.addArgs(args);
+    const classdump_step = b.step("classdump", "Dump a single .class file (smoke test for the classfile parser)");
+    classdump_step.dependOn(&run_classdump.step);
+
+    // Tests for the classfile parser.
+    const classfile_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/classfile/classfile.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
+    });
+    const run_classfile_tests = b.addRunArtifact(classfile_tests);
+    const test_step = b.step("test-classfile", "Run classfile parser tests");
+    test_step.dependOn(&run_classfile_tests.step);
 }
