@@ -362,6 +362,12 @@ pub inline fn exceptionDescribe(env: *JNIEnv) void {
 pub inline fn newStringUTF(env: *JNIEnv, s: [*:0]const u8) jstring {
     return envTable(env).NewStringUTF.?(env, s);
 }
+/// Typed variant that returns a `jni.String` handle — use this when
+/// passing strings to call/callStatic so the signature comes out as
+/// `Ljava/lang/String;` rather than the generic `Ljava/lang/Object;`.
+pub inline fn newString(env: *JNIEnv, s: [*:0]const u8) String {
+    return .{ .handle = envTable(env).NewStringUTF.?(env, s) };
+}
 pub inline fn getStringUTFChars(env: *JNIEnv, s: jstring) [*c]const u8 {
     return envTable(env).GetStringUTFChars.?(env, s, null);
 }
@@ -504,6 +510,10 @@ pub fn ClassRef(comptime sig: [:0]const u8) type {
         pub const java_sig = sig;
     };
 }
+
+/// Pre-declared `java.lang.String` handle. Use with `newString` to get the
+/// correct `Ljava/lang/String;` signature in call()/callStatic().
+pub const String = ClassRef("Ljava/lang/String;");
 
 inline fn objectReturn(comptime Ret: type, raw: jobject) Ret {
     if (Ret == jobject) return raw;
