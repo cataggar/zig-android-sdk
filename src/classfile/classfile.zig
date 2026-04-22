@@ -18,6 +18,7 @@ const std = @import("std");
 pub const reader_mod = @import("reader.zig");
 pub const cp = @import("constant_pool.zig");
 pub const attribute = @import("attribute.zig");
+pub const jar = @import("jar.zig");
 
 pub const MAGIC: u32 = 0xCAFEBABE;
 
