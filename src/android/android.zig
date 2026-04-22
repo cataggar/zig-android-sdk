@@ -9,6 +9,12 @@ const zig016 = @import("zig016");
 const Logger = @import("Logger.zig");
 const Level = ndk.Level;
 
+const NativeActivityGlue = @import("NativeActivityGlue.zig");
+
+/// Build an `ANativeActivityCallbacks` table that dispatches to methods on
+/// `App` via comptime reflection. See `NativeActivityGlue.zig` for details.
+pub const makeNativeActivityGlue = NativeActivityGlue.make;
+
 /// Alternate panic implementation that calls __android_log_write so that you can see the logging via "adb logcat"
 pub const panic = if (builtin.zig_version.major == 0 and builtin.zig_version.minor <= 15)
     std.debug.FullPanic(@import("Zig015_Panic.zig").panic)
