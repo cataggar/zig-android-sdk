@@ -78,9 +78,27 @@ const JarStats = struct {
     failed: usize = 0,
     sigs: usize = 0,
     sigs_failed: usize = 0,
+    anns: usize = 0,
+    anns_failed: usize = 0,
+    params: usize = 0,
+    params_failed: usize = 0,
+    requires_api: usize = 0,
     w: *std.Io.Writer,
     gpa: std.mem.Allocator,
 };
+
+fn tryDecodeAnns(stats: *JarStats, a: std.mem.Allocator, pool: classfile.cp.Pool, attrs: []const classfile.attribute.Raw, where: []const u8, entry_name: []const u8) !void {
+    inline for (&[_][]const u8{ "RuntimeVisibleAnnotations", "RuntimeInvisibleAnnotations" }) |aname| {
+        if (classfile.attribute.find(attrs, aname)) |raw| {
+            _ = classfile.annotation.decodeAnnotations(a, pool, raw.*) catch |err| {
+                stats.anns_failed += 1;
+                try stats.w.print("ANN FAIL {s}.{s} ({s}): {s}\n", .{ entry_name, where, aname, @errorName(err) });
+                return;
+            };
+            stats.anns += 1;
+        }
+    }
+}
 
 fn jarCallback(stats: *JarStats, entry: classfile.jar.Entry) anyerror!void {
     var cf = classfile.parseClass(stats.gpa, entry.bytes) catch |err| {
@@ -91,12 +109,11 @@ fn jarCallback(stats: *JarStats, entry: classfile.jar.Entry) anyerror!void {
     defer cf.deinit();
     stats.ok += 1;
 
-    // Exercise the signature parser against every generic Signature we
-    // see. Uses a throwaway arena so memory doesn't accumulate.
     var arena = std.heap.ArenaAllocator.init(stats.gpa);
     defer arena.deinit();
     const a = arena.allocator();
 
+    // Signatures ------------------------------------------------------------
     if (cf.signature) |s| {
         _ = classfile.signature.parseClass(a, s) catch |err| {
             stats.sigs_failed += 1;
@@ -104,22 +121,49 @@ fn jarCallback(stats: *JarStats, entry: classfile.jar.Entry) anyerror!void {
         };
         stats.sigs += 1;
     }
-    for (cf.fields) |f| {
-        if (f.signature) |s| {
-            _ = classfile.signature.parseField(a, s) catch |err| {
-                stats.sigs_failed += 1;
-                try stats.w.print("SIG-FIELD FAIL {s}.{s}: {s}  sig={s}\n", .{ entry.name, f.name, @errorName(err), s });
-            };
-            stats.sigs += 1;
-        }
-    }
+    for (cf.fields) |f| if (f.signature) |s| {
+        _ = classfile.signature.parseField(a, s) catch |err| {
+            stats.sigs_failed += 1;
+            try stats.w.print("SIG-FIELD FAIL {s}.{s}: {s}  sig={s}\n", .{ entry.name, f.name, @errorName(err), s });
+        };
+        stats.sigs += 1;
+    };
+    for (cf.methods) |m| if (m.signature) |s| {
+        _ = classfile.signature.parseMethod(a, s) catch |err| {
+            stats.sigs_failed += 1;
+            try stats.w.print("SIG-METHOD FAIL {s}.{s}: {s}  sig={s}\n", .{ entry.name, m.name, @errorName(err), s });
+        };
+        stats.sigs += 1;
+    };
+
+    // Annotations -----------------------------------------------------------
+    try tryDecodeAnns(stats, a, cf.pool, cf.attributes_raw, "<class>", entry.name);
+    for (cf.fields) |f| try tryDecodeAnns(stats, a, cf.pool, f.attributes_raw, f.name, entry.name);
     for (cf.methods) |m| {
-        if (m.signature) |s| {
-            _ = classfile.signature.parseMethod(a, s) catch |err| {
-                stats.sigs_failed += 1;
-                try stats.w.print("SIG-METHOD FAIL {s}.{s}: {s}  sig={s}\n", .{ entry.name, m.name, @errorName(err), s });
+        try tryDecodeAnns(stats, a, cf.pool, m.attributes_raw, m.name, entry.name);
+
+        // MethodParameters
+        if (classfile.attribute.find(m.attributes_raw, "MethodParameters")) |raw| {
+            _ = classfile.annotation.decodeMethodParameters(a, cf.pool, raw.*) catch |err| {
+                stats.params_failed += 1;
+                try stats.w.print("PARAM FAIL {s}.{s}: {s}\n", .{ entry.name, m.name, @errorName(err) });
             };
-            stats.sigs += 1;
+            stats.params += 1;
+        }
+
+        // Parameter annotations
+        inline for (&[_][]const u8{ "RuntimeVisibleParameterAnnotations", "RuntimeInvisibleParameterAnnotations" }) |pname| {
+            if (classfile.attribute.find(m.attributes_raw, pname)) |raw| {
+                _ = classfile.annotation.decodeParameterAnnotations(a, cf.pool, raw.*) catch |err| {
+                    stats.anns_failed += 1;
+                    try stats.w.print("PARAM-ANN FAIL {s}.{s}: {s}\n", .{ entry.name, m.name, @errorName(err) });
+                };
+                stats.anns += 1;
+            }
+        }
+
+        if (try classfile.annotation.requiresApi(a, cf.pool, m.attributes_raw)) |_| {
+            stats.requires_api += 1;
         }
     }
 
@@ -137,8 +181,9 @@ fn dumpJar(
 ) !void {
     var stats = JarStats{ .w = w, .gpa = gpa };
     try classfile.jar.walkClasses(gpa, io, jar_path, &stats, jarCallback);
-    try w.print("\nparsed {d} classes, {d} failed; {d} signatures ({d} failed)\n", .{
-        stats.ok, stats.failed, stats.sigs, stats.sigs_failed,
-    });
-    if (stats.failed != 0 or stats.sigs_failed != 0) return error.SomeClassesFailed;
+    try w.print(
+        "\nparsed {d} classes ({d} failed)\n  signatures: {d} ({d} failed)\n  annotation lists: {d} ({d} failed)\n  MethodParameters: {d} ({d} failed)\n  @RequiresApi method hits: {d}\n",
+        .{ stats.ok, stats.failed, stats.sigs, stats.sigs_failed, stats.anns, stats.anns_failed, stats.params, stats.params_failed, stats.requires_api },
+    );
+    if (stats.failed != 0 or stats.sigs_failed != 0 or stats.anns_failed != 0 or stats.params_failed != 0) return error.SomeClassesFailed;
 }

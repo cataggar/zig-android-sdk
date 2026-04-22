@@ -20,6 +20,7 @@ pub const cp = @import("constant_pool.zig");
 pub const attribute = @import("attribute.zig");
 pub const jar = @import("jar.zig");
 pub const signature = @import("signature.zig");
+pub const annotation = @import("annotation.zig");
 
 pub const MAGIC: u32 = 0xCAFEBABE;
 
@@ -194,6 +195,7 @@ test {
     _ = @import("constant_pool.zig");
     _ = @import("attribute.zig");
     _ = @import("signature.zig");
+    _ = @import("annotation.zig");
 }
 
 /// Build a minimal but fully valid `.class` representing:
