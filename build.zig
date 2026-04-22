@@ -83,4 +83,39 @@ pub fn build(b: *std.Build) void {
     const run_classfile_tests = b.addRunArtifact(classfile_tests);
     const test_step = b.step("test-classfile", "Run classfile parser tests");
     test_step.dependOn(&run_classfile_tests.step);
+
+    // Binding generator module + CLI: `zig build bindgen -- --jar ... --out ...`.
+    const bindgen_module = b.addModule("bindgen", .{
+        .root_source_file = b.path("src/bindgen/bindgen.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "classfile", .module = classfile_module }},
+    });
+
+    const bindgen_exe = b.addExecutable(.{
+        .name = "bindgen",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/bindgen/main.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "bindgen", .module = bindgen_module }},
+        }),
+    });
+    b.installArtifact(bindgen_exe);
+    const run_bindgen = b.addRunArtifact(bindgen_exe);
+    if (b.args) |args| run_bindgen.addArgs(args);
+    const bindgen_step = b.step("bindgen", "Generate Zig bindings from a .jar file");
+    bindgen_step.dependOn(&run_bindgen.step);
+
+    const bindgen_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/bindgen/bindgen.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "classfile", .module = classfile_module }},
+        }),
+    });
+    const run_bindgen_tests = b.addRunArtifact(bindgen_tests);
+    const test_bindgen_step = b.step("test-bindgen", "Run bindgen tests");
+    test_bindgen_step.dependOn(&run_bindgen_tests.step);
 }
