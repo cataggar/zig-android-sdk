@@ -76,6 +76,8 @@ fn dumpClass(
 const JarStats = struct {
     ok: usize = 0,
     failed: usize = 0,
+    sigs: usize = 0,
+    sigs_failed: usize = 0,
     w: *std.Io.Writer,
     gpa: std.mem.Allocator,
 };
@@ -88,7 +90,39 @@ fn jarCallback(stats: *JarStats, entry: classfile.jar.Entry) anyerror!void {
     };
     defer cf.deinit();
     stats.ok += 1;
-    // Progress indicator every 1000 classes so the user sees it's alive.
+
+    // Exercise the signature parser against every generic Signature we
+    // see. Uses a throwaway arena so memory doesn't accumulate.
+    var arena = std.heap.ArenaAllocator.init(stats.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    if (cf.signature) |s| {
+        _ = classfile.signature.parseClass(a, s) catch |err| {
+            stats.sigs_failed += 1;
+            try stats.w.print("SIG-CLASS FAIL {s}: {s}  sig={s}\n", .{ entry.name, @errorName(err), s });
+        };
+        stats.sigs += 1;
+    }
+    for (cf.fields) |f| {
+        if (f.signature) |s| {
+            _ = classfile.signature.parseField(a, s) catch |err| {
+                stats.sigs_failed += 1;
+                try stats.w.print("SIG-FIELD FAIL {s}.{s}: {s}  sig={s}\n", .{ entry.name, f.name, @errorName(err), s });
+            };
+            stats.sigs += 1;
+        }
+    }
+    for (cf.methods) |m| {
+        if (m.signature) |s| {
+            _ = classfile.signature.parseMethod(a, s) catch |err| {
+                stats.sigs_failed += 1;
+                try stats.w.print("SIG-METHOD FAIL {s}.{s}: {s}  sig={s}\n", .{ entry.name, m.name, @errorName(err), s });
+            };
+            stats.sigs += 1;
+        }
+    }
+
     if ((stats.ok & 0x3ff) == 0) {
         try stats.w.print("... {d} classes parsed\n", .{stats.ok});
         try stats.w.flush();
@@ -103,6 +137,8 @@ fn dumpJar(
 ) !void {
     var stats = JarStats{ .w = w, .gpa = gpa };
     try classfile.jar.walkClasses(gpa, io, jar_path, &stats, jarCallback);
-    try w.print("\nparsed {d} classes, {d} failed\n", .{ stats.ok, stats.failed });
-    if (stats.failed != 0) return error.SomeClassesFailed;
+    try w.print("\nparsed {d} classes, {d} failed; {d} signatures ({d} failed)\n", .{
+        stats.ok, stats.failed, stats.sigs, stats.sigs_failed,
+    });
+    if (stats.failed != 0 or stats.sigs_failed != 0) return error.SomeClassesFailed;
 }

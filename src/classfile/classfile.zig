@@ -19,6 +19,7 @@ pub const reader_mod = @import("reader.zig");
 pub const cp = @import("constant_pool.zig");
 pub const attribute = @import("attribute.zig");
 pub const jar = @import("jar.zig");
+pub const signature = @import("signature.zig");
 
 pub const MAGIC: u32 = 0xCAFEBABE;
 
@@ -45,6 +46,9 @@ pub const Field = struct {
     access: ClassAccess,
     name: []const u8,
     descriptor: []const u8,
+    /// Raw `Signature` attribute text (JVMS §4.7.9), or null if absent.
+    /// Parse with `signature.parseField`.
+    signature: ?[]const u8,
     constant_value: ?attribute.ConstantValue,
     attributes_raw: []attribute.Raw,
 };
@@ -53,6 +57,9 @@ pub const Method = struct {
     access: ClassAccess,
     name: []const u8,
     descriptor: []const u8,
+    /// Raw `Signature` attribute text, or null if absent. Parse with
+    /// `signature.parseMethod`.
+    signature: ?[]const u8,
     attributes_raw: []attribute.Raw,
 };
 
@@ -67,6 +74,9 @@ pub const ClassFile = struct {
     fields: []Field,
     methods: []Method,
     attributes_raw: []attribute.Raw,
+    /// Raw `Signature` attribute text for the class, or null if absent.
+    /// Parse with `signature.parseClass`.
+    signature: ?[]const u8,
     pool: cp.Pool,
 
     pub fn deinit(self: *ClassFile) void {
@@ -132,6 +142,7 @@ pub fn parseClass(
             .access = facc,
             .name = try pool.getUtf8(name_idx),
             .descriptor = try pool.getUtf8(desc_idx),
+            .signature = try attribute.findSignature(pool, attrs),
             .constant_value = cv,
             .attributes_raw = attrs,
         };
@@ -149,6 +160,7 @@ pub fn parseClass(
             .access = macc,
             .name = try pool.getUtf8(name_idx),
             .descriptor = try pool.getUtf8(desc_idx),
+            .signature = try attribute.findSignature(pool, attrs),
             .attributes_raw = attrs,
         };
     }
@@ -167,6 +179,7 @@ pub fn parseClass(
         .fields = fields,
         .methods = methods,
         .attributes_raw = cls_attrs,
+        .signature = try attribute.findSignature(pool, cls_attrs),
         .pool = pool,
     };
 }
@@ -180,6 +193,7 @@ test {
     _ = @import("reader.zig");
     _ = @import("constant_pool.zig");
     _ = @import("attribute.zig");
+    _ = @import("signature.zig");
 }
 
 /// Build a minimal but fully valid `.class` representing:

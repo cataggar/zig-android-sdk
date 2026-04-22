@@ -66,3 +66,19 @@ pub fn find(attrs: []const Raw, name: []const u8) ?*const Raw {
     for (attrs) |*a| if (std.mem.eql(u8, a.name, name)) return a;
     return null;
 }
+
+/// Decode a `Signature` attribute (JVMS §4.7.9) to its referenced Utf8
+/// string. Works for class, field, and method Signatures (all three have
+/// the same 2-byte `signature_index` payload).
+pub fn decodeSignature(pool: cp.Pool, raw: Raw) ParseError![]const u8 {
+    if (raw.bytes.len != 2) return error.BadAttribute;
+    const idx = std.mem.readInt(u16, raw.bytes[0..2], .big);
+    return try pool.getUtf8(idx);
+}
+
+/// Convenience: find a `Signature` attribute in `attrs` and decode it,
+/// returning null if absent.
+pub fn findSignature(pool: cp.Pool, attrs: []const Raw) ParseError!?[]const u8 {
+    const raw = find(attrs, "Signature") orelse return null;
+    return try decodeSignature(pool, raw.*);
+}
