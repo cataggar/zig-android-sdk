@@ -85,11 +85,14 @@ fn appFromActivity(comptime App: type, activity: anytype) ?*App {
 
 fn handleReturn(comptime name: []const u8, result: anytype) void {
     const R = @TypeOf(result);
-    switch (@typeInfo(R)) {
-        .void => {},
-        .error_union => result catch |err| log.err("{s}: {s}", .{ name, @errorName(err) }),
-        .error_set => log.err("{s}: {s}", .{ name, @errorName(result) }),
-        else => @compileError("App." ++ name ++ " must return void or !void"),
+    comptime {
+        const ok = R == void or @typeInfo(R) == .error_union or @typeInfo(R) == .error_set;
+        if (!ok) @compileError("App." ++ name ++ " must return void, !void, or an error set");
+    }
+    if (comptime @typeInfo(R) == .error_union) {
+        result catch |err| log.err("{s}: {s}", .{ name, @errorName(err) });
+    } else if (comptime @typeInfo(R) == .error_set) {
+        log.err("{s}: {s}", .{ name, @errorName(result) });
     }
 }
 
