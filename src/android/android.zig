@@ -12,6 +12,16 @@ const NativeActivityGlue = @import("NativeActivityGlue.zig");
 /// `App` via comptime reflection. See `NativeActivityGlue.zig` for details.
 pub const makeNativeActivityGlue = NativeActivityGlue.make;
 
+/// Cast an erased pointer to `*T`, combining the required `@alignCast` with
+/// the `@ptrCast`. Using this helper guarantees the `@alignCast` never gets
+/// dropped by accident (a footgun that previously required a patch in the
+/// `makeNativeActivityGlue` example).
+///
+///     const app: *AndroidApp = android.asPtr(AndroidApp, activity.instance);
+pub inline fn asPtr(comptime T: type, p: anytype) *T {
+    return @ptrCast(@alignCast(p));
+}
+
 /// Alternate panic implementation that calls __android_log_write so that you can see the logging via "adb logcat"
 pub const panic = std.debug.FullPanic(compat.panic);
 
