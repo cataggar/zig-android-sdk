@@ -385,6 +385,694 @@ pub inline fn getEnv(vm: *JavaVM, out_env: *?*anyopaque, version: jint) jint {
     return vmTable(vm).GetEnv.?(vm, out_env, version);
 }
 
+// ===========================================================================
+// Issue #2: full JNINativeInterface wrapper coverage. The wrappers below
+// follow the existing `envTable(env).Name.?(env, …)` pattern so every field
+// in the struct has a Zig-friendly entry point.
+// ===========================================================================
+
+// -- ABI sanity -------------------------------------------------------------
+
+comptime {
+    // `JNINativeInterface` is 233 pointer-sized slots (4 reserved + 229 fn
+    // pointers per jni.h). `JNIInvokeInterface` is 8 pointer-sized slots
+    // (3 reserved + 5 fn pointers). Both are expected to be layout-compatible
+    // with a `void*[N]` on every ABI.
+    std.debug.assert(@sizeOf(JNINativeInterface) == 233 * @sizeOf(usize));
+    std.debug.assert(@sizeOf(JNIInvokeInterface) == 8 * @sizeOf(usize));
+    std.debug.assert(@alignOf(JNINativeInterface) == @alignOf(usize));
+    std.debug.assert(@alignOf(JNIInvokeInterface) == @alignOf(usize));
+}
+
+test "JNINativeInterface ABI size" {
+    try std.testing.expectEqual(233 * @sizeOf(usize), @sizeOf(JNINativeInterface));
+    try std.testing.expectEqual(8 * @sizeOf(usize), @sizeOf(JNIInvokeInterface));
+    try std.testing.expectEqual(@alignOf(usize), @alignOf(JNINativeInterface));
+    try std.testing.expectEqual(@alignOf(usize), @alignOf(JNIInvokeInterface));
+}
+
+// -- Misc env helpers -------------------------------------------------------
+
+pub inline fn getVersion(env: *JNIEnv) jint {
+    return envTable(env).GetVersion.?(env);
+}
+
+/// Fetch the `*JavaVM` attached to `env`. Returns `error.GetJavaVMFailed` on
+/// a non-zero status from JNI.
+pub fn getJavaVM(env: *JNIEnv) !*JavaVM {
+    var out: ?*JavaVM = null;
+    const rc = envTable(env).GetJavaVM.?(env, @as([*c]?*JavaVM, @ptrCast(&out)));
+    if (rc != JNI_OK) return error.GetJavaVMFailed;
+    return out orelse error.GetJavaVMFailed;
+}
+
+pub inline fn defineClass(env: *JNIEnv, name: [*:0]const u8, loader: jobject, buf: []const u8) jclass {
+    return envTable(env).DefineClass.?(env, name, loader, @as([*c]const jbyte, @ptrCast(buf.ptr)), @as(jsize, @intCast(buf.len)));
+}
+
+// -- Reflection -------------------------------------------------------------
+
+pub inline fn fromReflectedMethod(env: *JNIEnv, method: jobject) jmethodID {
+    return envTable(env).FromReflectedMethod.?(env, method);
+}
+pub inline fn fromReflectedField(env: *JNIEnv, field: jobject) jfieldID {
+    return envTable(env).FromReflectedField.?(env, field);
+}
+pub inline fn toReflectedMethod(env: *JNIEnv, clazz: jclass, mid: jmethodID, is_static: bool) jobject {
+    return envTable(env).ToReflectedMethod.?(env, clazz, mid, @intFromBool(is_static));
+}
+pub inline fn toReflectedField(env: *JNIEnv, clazz: jclass, fid: jfieldID, is_static: bool) jobject {
+    return envTable(env).ToReflectedField.?(env, clazz, fid, @intFromBool(is_static));
+}
+
+// -- Global / weak / local refs ---------------------------------------------
+
+pub inline fn newGlobalRef(env: *JNIEnv, obj: jobject) jobject {
+    return envTable(env).NewGlobalRef.?(env, obj);
+}
+pub inline fn deleteGlobalRef(env: *JNIEnv, obj: jobject) void {
+    envTable(env).DeleteGlobalRef.?(env, obj);
+}
+pub inline fn newWeakGlobalRef(env: *JNIEnv, obj: jobject) jweak {
+    return envTable(env).NewWeakGlobalRef.?(env, obj);
+}
+pub inline fn deleteWeakGlobalRef(env: *JNIEnv, wref: jweak) void {
+    envTable(env).DeleteWeakGlobalRef.?(env, wref);
+}
+pub inline fn newLocalRef(env: *JNIEnv, obj: jobject) jobject {
+    return envTable(env).NewLocalRef.?(env, obj);
+}
+pub inline fn ensureLocalCapacity(env: *JNIEnv, capacity: jint) jint {
+    return envTable(env).EnsureLocalCapacity.?(env, capacity);
+}
+pub inline fn pushLocalFrame(env: *JNIEnv, capacity: jint) jint {
+    return envTable(env).PushLocalFrame.?(env, capacity);
+}
+pub inline fn popLocalFrame(env: *JNIEnv, result: jobject) jobject {
+    return envTable(env).PopLocalFrame.?(env, result);
+}
+pub inline fn isSameObject(env: *JNIEnv, a: jobject, b: jobject) bool {
+    return envTable(env).IsSameObject.?(env, a, b) != 0;
+}
+
+// -- Object / class / reflection --------------------------------------------
+
+pub inline fn getObjectClass(env: *JNIEnv, obj: jobject) jclass {
+    return envTable(env).GetObjectClass.?(env, obj);
+}
+pub inline fn getSuperclass(env: *JNIEnv, clazz: jclass) jclass {
+    return envTable(env).GetSuperclass.?(env, clazz);
+}
+pub inline fn isInstanceOf(env: *JNIEnv, obj: jobject, clazz: jclass) bool {
+    return envTable(env).IsInstanceOf.?(env, obj, clazz) != 0;
+}
+pub inline fn isAssignableFrom(env: *JNIEnv, sub: jclass, sup: jclass) bool {
+    return envTable(env).IsAssignableFrom.?(env, sub, sup) != 0;
+}
+pub inline fn getObjectRefType(env: *JNIEnv, obj: jobject) jobjectRefType {
+    return envTable(env).GetObjectRefType.?(env, obj);
+}
+pub inline fn allocObject(env: *JNIEnv, clazz: jclass) jobject {
+    return envTable(env).AllocObject.?(env, clazz);
+}
+pub inline fn newObjectA(env: *JNIEnv, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jobject {
+    return envTable(env).NewObjectA.?(env, clazz, mid, args);
+}
+
+// -- Exceptions -------------------------------------------------------------
+
+pub inline fn throw(env: *JNIEnv, thr: jthrowable) jint {
+    return envTable(env).Throw.?(env, thr);
+}
+pub inline fn throwNew(env: *JNIEnv, clazz: jclass, msg: [*:0]const u8) jint {
+    return envTable(env).ThrowNew.?(env, clazz, msg);
+}
+pub inline fn exceptionOccurred(env: *JNIEnv) jthrowable {
+    return envTable(env).ExceptionOccurred.?(env);
+}
+pub inline fn fatalError(env: *JNIEnv, msg: [*:0]const u8) noreturn {
+    envTable(env).FatalError.?(env, msg);
+    unreachable;
+}
+
+// -- Field access -----------------------------------------------------------
+
+pub inline fn getFieldID(env: *JNIEnv, clazz: jclass, name: [*:0]const u8, sig: [*:0]const u8) jfieldID {
+    return envTable(env).GetFieldID.?(env, clazz, name, sig);
+}
+pub inline fn getStaticFieldID(env: *JNIEnv, clazz: jclass, name: [*:0]const u8, sig: [*:0]const u8) jfieldID {
+    return envTable(env).GetStaticFieldID.?(env, clazz, name, sig);
+}
+
+pub inline fn getObjectField(env: *JNIEnv, obj: jobject, fid: jfieldID) jobject {
+    return envTable(env).GetObjectField.?(env, obj, fid);
+}
+pub inline fn getBooleanField(env: *JNIEnv, obj: jobject, fid: jfieldID) bool {
+    return envTable(env).GetBooleanField.?(env, obj, fid) != 0;
+}
+pub inline fn getByteField(env: *JNIEnv, obj: jobject, fid: jfieldID) jbyte {
+    return envTable(env).GetByteField.?(env, obj, fid);
+}
+pub inline fn getCharField(env: *JNIEnv, obj: jobject, fid: jfieldID) jchar {
+    return envTable(env).GetCharField.?(env, obj, fid);
+}
+pub inline fn getShortField(env: *JNIEnv, obj: jobject, fid: jfieldID) jshort {
+    return envTable(env).GetShortField.?(env, obj, fid);
+}
+pub inline fn getIntField(env: *JNIEnv, obj: jobject, fid: jfieldID) jint {
+    return envTable(env).GetIntField.?(env, obj, fid);
+}
+pub inline fn getLongField(env: *JNIEnv, obj: jobject, fid: jfieldID) jlong {
+    return envTable(env).GetLongField.?(env, obj, fid);
+}
+pub inline fn getFloatField(env: *JNIEnv, obj: jobject, fid: jfieldID) jfloat {
+    return envTable(env).GetFloatField.?(env, obj, fid);
+}
+pub inline fn getDoubleField(env: *JNIEnv, obj: jobject, fid: jfieldID) jdouble {
+    return envTable(env).GetDoubleField.?(env, obj, fid);
+}
+
+pub inline fn setObjectField(env: *JNIEnv, obj: jobject, fid: jfieldID, v: jobject) void {
+    envTable(env).SetObjectField.?(env, obj, fid, v);
+}
+pub inline fn setBooleanField(env: *JNIEnv, obj: jobject, fid: jfieldID, v: bool) void {
+    envTable(env).SetBooleanField.?(env, obj, fid, @intFromBool(v));
+}
+pub inline fn setByteField(env: *JNIEnv, obj: jobject, fid: jfieldID, v: jbyte) void {
+    envTable(env).SetByteField.?(env, obj, fid, v);
+}
+pub inline fn setCharField(env: *JNIEnv, obj: jobject, fid: jfieldID, v: jchar) void {
+    envTable(env).SetCharField.?(env, obj, fid, v);
+}
+pub inline fn setShortField(env: *JNIEnv, obj: jobject, fid: jfieldID, v: jshort) void {
+    envTable(env).SetShortField.?(env, obj, fid, v);
+}
+pub inline fn setIntField(env: *JNIEnv, obj: jobject, fid: jfieldID, v: jint) void {
+    envTable(env).SetIntField.?(env, obj, fid, v);
+}
+pub inline fn setLongField(env: *JNIEnv, obj: jobject, fid: jfieldID, v: jlong) void {
+    envTable(env).SetLongField.?(env, obj, fid, v);
+}
+pub inline fn setFloatField(env: *JNIEnv, obj: jobject, fid: jfieldID, v: jfloat) void {
+    envTable(env).SetFloatField.?(env, obj, fid, v);
+}
+pub inline fn setDoubleField(env: *JNIEnv, obj: jobject, fid: jfieldID, v: jdouble) void {
+    envTable(env).SetDoubleField.?(env, obj, fid, v);
+}
+
+pub inline fn getStaticObjectField(env: *JNIEnv, clazz: jclass, fid: jfieldID) jobject {
+    return envTable(env).GetStaticObjectField.?(env, clazz, fid);
+}
+pub inline fn getStaticBooleanField(env: *JNIEnv, clazz: jclass, fid: jfieldID) bool {
+    return envTable(env).GetStaticBooleanField.?(env, clazz, fid) != 0;
+}
+pub inline fn getStaticByteField(env: *JNIEnv, clazz: jclass, fid: jfieldID) jbyte {
+    return envTable(env).GetStaticByteField.?(env, clazz, fid);
+}
+pub inline fn getStaticCharField(env: *JNIEnv, clazz: jclass, fid: jfieldID) jchar {
+    return envTable(env).GetStaticCharField.?(env, clazz, fid);
+}
+pub inline fn getStaticShortField(env: *JNIEnv, clazz: jclass, fid: jfieldID) jshort {
+    return envTable(env).GetStaticShortField.?(env, clazz, fid);
+}
+pub inline fn getStaticIntField(env: *JNIEnv, clazz: jclass, fid: jfieldID) jint {
+    return envTable(env).GetStaticIntField.?(env, clazz, fid);
+}
+pub inline fn getStaticLongField(env: *JNIEnv, clazz: jclass, fid: jfieldID) jlong {
+    return envTable(env).GetStaticLongField.?(env, clazz, fid);
+}
+pub inline fn getStaticFloatField(env: *JNIEnv, clazz: jclass, fid: jfieldID) jfloat {
+    return envTable(env).GetStaticFloatField.?(env, clazz, fid);
+}
+pub inline fn getStaticDoubleField(env: *JNIEnv, clazz: jclass, fid: jfieldID) jdouble {
+    return envTable(env).GetStaticDoubleField.?(env, clazz, fid);
+}
+
+pub inline fn setStaticObjectField(env: *JNIEnv, clazz: jclass, fid: jfieldID, v: jobject) void {
+    envTable(env).SetStaticObjectField.?(env, clazz, fid, v);
+}
+pub inline fn setStaticBooleanField(env: *JNIEnv, clazz: jclass, fid: jfieldID, v: bool) void {
+    envTable(env).SetStaticBooleanField.?(env, clazz, fid, @intFromBool(v));
+}
+pub inline fn setStaticByteField(env: *JNIEnv, clazz: jclass, fid: jfieldID, v: jbyte) void {
+    envTable(env).SetStaticByteField.?(env, clazz, fid, v);
+}
+pub inline fn setStaticCharField(env: *JNIEnv, clazz: jclass, fid: jfieldID, v: jchar) void {
+    envTable(env).SetStaticCharField.?(env, clazz, fid, v);
+}
+pub inline fn setStaticShortField(env: *JNIEnv, clazz: jclass, fid: jfieldID, v: jshort) void {
+    envTable(env).SetStaticShortField.?(env, clazz, fid, v);
+}
+pub inline fn setStaticIntField(env: *JNIEnv, clazz: jclass, fid: jfieldID, v: jint) void {
+    envTable(env).SetStaticIntField.?(env, clazz, fid, v);
+}
+pub inline fn setStaticLongField(env: *JNIEnv, clazz: jclass, fid: jfieldID, v: jlong) void {
+    envTable(env).SetStaticLongField.?(env, clazz, fid, v);
+}
+pub inline fn setStaticFloatField(env: *JNIEnv, clazz: jclass, fid: jfieldID, v: jfloat) void {
+    envTable(env).SetStaticFloatField.?(env, clazz, fid, v);
+}
+pub inline fn setStaticDoubleField(env: *JNIEnv, clazz: jclass, fid: jfieldID, v: jdouble) void {
+    envTable(env).SetStaticDoubleField.?(env, clazz, fid, v);
+}
+
+// -- Call*MethodA thin wrappers ---------------------------------------------
+
+pub inline fn callObjectMethodA(env: *JNIEnv, obj: jobject, mid: jmethodID, args: [*c]const jvalue) jobject {
+    return envTable(env).CallObjectMethodA.?(env, obj, mid, args);
+}
+pub inline fn callBooleanMethodA(env: *JNIEnv, obj: jobject, mid: jmethodID, args: [*c]const jvalue) bool {
+    return envTable(env).CallBooleanMethodA.?(env, obj, mid, args) != 0;
+}
+pub inline fn callByteMethodA(env: *JNIEnv, obj: jobject, mid: jmethodID, args: [*c]const jvalue) jbyte {
+    return envTable(env).CallByteMethodA.?(env, obj, mid, args);
+}
+pub inline fn callCharMethodA(env: *JNIEnv, obj: jobject, mid: jmethodID, args: [*c]const jvalue) jchar {
+    return envTable(env).CallCharMethodA.?(env, obj, mid, args);
+}
+pub inline fn callShortMethodA(env: *JNIEnv, obj: jobject, mid: jmethodID, args: [*c]const jvalue) jshort {
+    return envTable(env).CallShortMethodA.?(env, obj, mid, args);
+}
+pub inline fn callIntMethodA(env: *JNIEnv, obj: jobject, mid: jmethodID, args: [*c]const jvalue) jint {
+    return envTable(env).CallIntMethodA.?(env, obj, mid, args);
+}
+pub inline fn callLongMethodA(env: *JNIEnv, obj: jobject, mid: jmethodID, args: [*c]const jvalue) jlong {
+    return envTable(env).CallLongMethodA.?(env, obj, mid, args);
+}
+pub inline fn callFloatMethodA(env: *JNIEnv, obj: jobject, mid: jmethodID, args: [*c]const jvalue) jfloat {
+    return envTable(env).CallFloatMethodA.?(env, obj, mid, args);
+}
+pub inline fn callDoubleMethodA(env: *JNIEnv, obj: jobject, mid: jmethodID, args: [*c]const jvalue) jdouble {
+    return envTable(env).CallDoubleMethodA.?(env, obj, mid, args);
+}
+pub inline fn callVoidMethodA(env: *JNIEnv, obj: jobject, mid: jmethodID, args: [*c]const jvalue) void {
+    envTable(env).CallVoidMethodA.?(env, obj, mid, args);
+}
+
+pub inline fn callStaticObjectMethodA(env: *JNIEnv, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jobject {
+    return envTable(env).CallStaticObjectMethodA.?(env, clazz, mid, args);
+}
+pub inline fn callStaticBooleanMethodA(env: *JNIEnv, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) bool {
+    return envTable(env).CallStaticBooleanMethodA.?(env, clazz, mid, args) != 0;
+}
+pub inline fn callStaticByteMethodA(env: *JNIEnv, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jbyte {
+    return envTable(env).CallStaticByteMethodA.?(env, clazz, mid, args);
+}
+pub inline fn callStaticCharMethodA(env: *JNIEnv, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jchar {
+    return envTable(env).CallStaticCharMethodA.?(env, clazz, mid, args);
+}
+pub inline fn callStaticShortMethodA(env: *JNIEnv, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jshort {
+    return envTable(env).CallStaticShortMethodA.?(env, clazz, mid, args);
+}
+pub inline fn callStaticIntMethodA(env: *JNIEnv, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jint {
+    return envTable(env).CallStaticIntMethodA.?(env, clazz, mid, args);
+}
+pub inline fn callStaticLongMethodA(env: *JNIEnv, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jlong {
+    return envTable(env).CallStaticLongMethodA.?(env, clazz, mid, args);
+}
+pub inline fn callStaticFloatMethodA(env: *JNIEnv, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jfloat {
+    return envTable(env).CallStaticFloatMethodA.?(env, clazz, mid, args);
+}
+pub inline fn callStaticDoubleMethodA(env: *JNIEnv, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jdouble {
+    return envTable(env).CallStaticDoubleMethodA.?(env, clazz, mid, args);
+}
+pub inline fn callStaticVoidMethodA(env: *JNIEnv, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) void {
+    envTable(env).CallStaticVoidMethodA.?(env, clazz, mid, args);
+}
+
+pub inline fn callNonvirtualObjectMethodA(env: *JNIEnv, obj: jobject, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jobject {
+    return envTable(env).CallNonvirtualObjectMethodA.?(env, obj, clazz, mid, args);
+}
+pub inline fn callNonvirtualBooleanMethodA(env: *JNIEnv, obj: jobject, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) bool {
+    return envTable(env).CallNonvirtualBooleanMethodA.?(env, obj, clazz, mid, args) != 0;
+}
+pub inline fn callNonvirtualByteMethodA(env: *JNIEnv, obj: jobject, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jbyte {
+    return envTable(env).CallNonvirtualByteMethodA.?(env, obj, clazz, mid, args);
+}
+pub inline fn callNonvirtualCharMethodA(env: *JNIEnv, obj: jobject, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jchar {
+    return envTable(env).CallNonvirtualCharMethodA.?(env, obj, clazz, mid, args);
+}
+pub inline fn callNonvirtualShortMethodA(env: *JNIEnv, obj: jobject, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jshort {
+    return envTable(env).CallNonvirtualShortMethodA.?(env, obj, clazz, mid, args);
+}
+pub inline fn callNonvirtualIntMethodA(env: *JNIEnv, obj: jobject, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jint {
+    return envTable(env).CallNonvirtualIntMethodA.?(env, obj, clazz, mid, args);
+}
+pub inline fn callNonvirtualLongMethodA(env: *JNIEnv, obj: jobject, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jlong {
+    return envTable(env).CallNonvirtualLongMethodA.?(env, obj, clazz, mid, args);
+}
+pub inline fn callNonvirtualFloatMethodA(env: *JNIEnv, obj: jobject, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jfloat {
+    return envTable(env).CallNonvirtualFloatMethodA.?(env, obj, clazz, mid, args);
+}
+pub inline fn callNonvirtualDoubleMethodA(env: *JNIEnv, obj: jobject, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) jdouble {
+    return envTable(env).CallNonvirtualDoubleMethodA.?(env, obj, clazz, mid, args);
+}
+pub inline fn callNonvirtualVoidMethodA(env: *JNIEnv, obj: jobject, clazz: jclass, mid: jmethodID, args: [*c]const jvalue) void {
+    envTable(env).CallNonvirtualVoidMethodA.?(env, obj, clazz, mid, args);
+}
+
+// -- Array APIs --------------------------------------------------------------
+
+/// JNI array-release modes. `.commit_and_free` corresponds to the `0` mode
+/// (copy back, then free). See JNI docs for `Release*ArrayElements`.
+pub const ArrayReleaseMode = enum(jint) {
+    commit_and_free = 0,
+    commit = JNI_COMMIT,
+    abort = JNI_ABORT,
+};
+
+pub inline fn getArrayLength(env: *JNIEnv, array: jarray) jsize {
+    return envTable(env).GetArrayLength.?(env, array);
+}
+pub inline fn newObjectArray(env: *JNIEnv, len: jsize, element_clazz: jclass, initial: jobject) jobjectArray {
+    return envTable(env).NewObjectArray.?(env, len, element_clazz, initial);
+}
+pub inline fn getObjectArrayElement(env: *JNIEnv, arr: jobjectArray, i: jsize) jobject {
+    return envTable(env).GetObjectArrayElement.?(env, arr, i);
+}
+pub inline fn setObjectArrayElement(env: *JNIEnv, arr: jobjectArray, i: jsize, val: jobject) void {
+    envTable(env).SetObjectArrayElement.?(env, arr, i, val);
+}
+
+pub inline fn newBooleanArray(env: *JNIEnv, len: jsize) jbooleanArray {
+    return envTable(env).NewBooleanArray.?(env, len);
+}
+pub inline fn newByteArray(env: *JNIEnv, len: jsize) jbyteArray {
+    return envTable(env).NewByteArray.?(env, len);
+}
+pub inline fn newCharArray(env: *JNIEnv, len: jsize) jcharArray {
+    return envTable(env).NewCharArray.?(env, len);
+}
+pub inline fn newShortArray(env: *JNIEnv, len: jsize) jshortArray {
+    return envTable(env).NewShortArray.?(env, len);
+}
+pub inline fn newIntArray(env: *JNIEnv, len: jsize) jintArray {
+    return envTable(env).NewIntArray.?(env, len);
+}
+pub inline fn newLongArray(env: *JNIEnv, len: jsize) jlongArray {
+    return envTable(env).NewLongArray.?(env, len);
+}
+pub inline fn newFloatArray(env: *JNIEnv, len: jsize) jfloatArray {
+    return envTable(env).NewFloatArray.?(env, len);
+}
+pub inline fn newDoubleArray(env: *JNIEnv, len: jsize) jdoubleArray {
+    return envTable(env).NewDoubleArray.?(env, len);
+}
+
+pub inline fn getBooleanArrayElements(env: *JNIEnv, arr: jbooleanArray, is_copy: ?*jboolean) [*c]jboolean {
+    return envTable(env).GetBooleanArrayElements.?(env, arr, @as([*c]jboolean, @ptrCast(is_copy)));
+}
+pub inline fn getByteArrayElements(env: *JNIEnv, arr: jbyteArray, is_copy: ?*jboolean) [*c]jbyte {
+    return envTable(env).GetByteArrayElements.?(env, arr, @as([*c]jboolean, @ptrCast(is_copy)));
+}
+pub inline fn getCharArrayElements(env: *JNIEnv, arr: jcharArray, is_copy: ?*jboolean) [*c]jchar {
+    return envTable(env).GetCharArrayElements.?(env, arr, @as([*c]jboolean, @ptrCast(is_copy)));
+}
+pub inline fn getShortArrayElements(env: *JNIEnv, arr: jshortArray, is_copy: ?*jboolean) [*c]jshort {
+    return envTable(env).GetShortArrayElements.?(env, arr, @as([*c]jboolean, @ptrCast(is_copy)));
+}
+pub inline fn getIntArrayElements(env: *JNIEnv, arr: jintArray, is_copy: ?*jboolean) [*c]jint {
+    return envTable(env).GetIntArrayElements.?(env, arr, @as([*c]jboolean, @ptrCast(is_copy)));
+}
+pub inline fn getLongArrayElements(env: *JNIEnv, arr: jlongArray, is_copy: ?*jboolean) [*c]jlong {
+    return envTable(env).GetLongArrayElements.?(env, arr, @as([*c]jboolean, @ptrCast(is_copy)));
+}
+pub inline fn getFloatArrayElements(env: *JNIEnv, arr: jfloatArray, is_copy: ?*jboolean) [*c]jfloat {
+    return envTable(env).GetFloatArrayElements.?(env, arr, @as([*c]jboolean, @ptrCast(is_copy)));
+}
+pub inline fn getDoubleArrayElements(env: *JNIEnv, arr: jdoubleArray, is_copy: ?*jboolean) [*c]jdouble {
+    return envTable(env).GetDoubleArrayElements.?(env, arr, @as([*c]jboolean, @ptrCast(is_copy)));
+}
+
+pub inline fn releaseBooleanArrayElements(env: *JNIEnv, arr: jbooleanArray, elems: [*c]jboolean, mode: ArrayReleaseMode) void {
+    envTable(env).ReleaseBooleanArrayElements.?(env, arr, elems, @intFromEnum(mode));
+}
+pub inline fn releaseByteArrayElements(env: *JNIEnv, arr: jbyteArray, elems: [*c]jbyte, mode: ArrayReleaseMode) void {
+    envTable(env).ReleaseByteArrayElements.?(env, arr, elems, @intFromEnum(mode));
+}
+pub inline fn releaseCharArrayElements(env: *JNIEnv, arr: jcharArray, elems: [*c]jchar, mode: ArrayReleaseMode) void {
+    envTable(env).ReleaseCharArrayElements.?(env, arr, elems, @intFromEnum(mode));
+}
+pub inline fn releaseShortArrayElements(env: *JNIEnv, arr: jshortArray, elems: [*c]jshort, mode: ArrayReleaseMode) void {
+    envTable(env).ReleaseShortArrayElements.?(env, arr, elems, @intFromEnum(mode));
+}
+pub inline fn releaseIntArrayElements(env: *JNIEnv, arr: jintArray, elems: [*c]jint, mode: ArrayReleaseMode) void {
+    envTable(env).ReleaseIntArrayElements.?(env, arr, elems, @intFromEnum(mode));
+}
+pub inline fn releaseLongArrayElements(env: *JNIEnv, arr: jlongArray, elems: [*c]jlong, mode: ArrayReleaseMode) void {
+    envTable(env).ReleaseLongArrayElements.?(env, arr, elems, @intFromEnum(mode));
+}
+pub inline fn releaseFloatArrayElements(env: *JNIEnv, arr: jfloatArray, elems: [*c]jfloat, mode: ArrayReleaseMode) void {
+    envTable(env).ReleaseFloatArrayElements.?(env, arr, elems, @intFromEnum(mode));
+}
+pub inline fn releaseDoubleArrayElements(env: *JNIEnv, arr: jdoubleArray, elems: [*c]jdouble, mode: ArrayReleaseMode) void {
+    envTable(env).ReleaseDoubleArrayElements.?(env, arr, elems, @intFromEnum(mode));
+}
+
+pub inline fn getBooleanArrayRegion(env: *JNIEnv, arr: jbooleanArray, start: jsize, len: jsize, buf: [*c]jboolean) void {
+    envTable(env).GetBooleanArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn getByteArrayRegion(env: *JNIEnv, arr: jbyteArray, start: jsize, len: jsize, buf: [*c]jbyte) void {
+    envTable(env).GetByteArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn getCharArrayRegion(env: *JNIEnv, arr: jcharArray, start: jsize, len: jsize, buf: [*c]jchar) void {
+    envTable(env).GetCharArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn getShortArrayRegion(env: *JNIEnv, arr: jshortArray, start: jsize, len: jsize, buf: [*c]jshort) void {
+    envTable(env).GetShortArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn getIntArrayRegion(env: *JNIEnv, arr: jintArray, start: jsize, len: jsize, buf: [*c]jint) void {
+    envTable(env).GetIntArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn getLongArrayRegion(env: *JNIEnv, arr: jlongArray, start: jsize, len: jsize, buf: [*c]jlong) void {
+    envTable(env).GetLongArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn getFloatArrayRegion(env: *JNIEnv, arr: jfloatArray, start: jsize, len: jsize, buf: [*c]jfloat) void {
+    envTable(env).GetFloatArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn getDoubleArrayRegion(env: *JNIEnv, arr: jdoubleArray, start: jsize, len: jsize, buf: [*c]jdouble) void {
+    envTable(env).GetDoubleArrayRegion.?(env, arr, start, len, buf);
+}
+
+pub inline fn setBooleanArrayRegion(env: *JNIEnv, arr: jbooleanArray, start: jsize, len: jsize, buf: [*c]const jboolean) void {
+    envTable(env).SetBooleanArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn setByteArrayRegion(env: *JNIEnv, arr: jbyteArray, start: jsize, len: jsize, buf: [*c]const jbyte) void {
+    envTable(env).SetByteArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn setCharArrayRegion(env: *JNIEnv, arr: jcharArray, start: jsize, len: jsize, buf: [*c]const jchar) void {
+    envTable(env).SetCharArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn setShortArrayRegion(env: *JNIEnv, arr: jshortArray, start: jsize, len: jsize, buf: [*c]const jshort) void {
+    envTable(env).SetShortArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn setIntArrayRegion(env: *JNIEnv, arr: jintArray, start: jsize, len: jsize, buf: [*c]const jint) void {
+    envTable(env).SetIntArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn setLongArrayRegion(env: *JNIEnv, arr: jlongArray, start: jsize, len: jsize, buf: [*c]const jlong) void {
+    envTable(env).SetLongArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn setFloatArrayRegion(env: *JNIEnv, arr: jfloatArray, start: jsize, len: jsize, buf: [*c]const jfloat) void {
+    envTable(env).SetFloatArrayRegion.?(env, arr, start, len, buf);
+}
+pub inline fn setDoubleArrayRegion(env: *JNIEnv, arr: jdoubleArray, start: jsize, len: jsize, buf: [*c]const jdouble) void {
+    envTable(env).SetDoubleArrayRegion.?(env, arr, start, len, buf);
+}
+
+pub inline fn getPrimitiveArrayCritical(env: *JNIEnv, arr: jarray, is_copy: ?*jboolean) ?*anyopaque {
+    return envTable(env).GetPrimitiveArrayCritical.?(env, arr, @as([*c]jboolean, @ptrCast(is_copy)));
+}
+pub inline fn releasePrimitiveArrayCritical(env: *JNIEnv, arr: jarray, carr: ?*anyopaque, mode: ArrayReleaseMode) void {
+    envTable(env).ReleasePrimitiveArrayCritical.?(env, arr, carr, @intFromEnum(mode));
+}
+
+// -- String APIs (round out the set) ----------------------------------------
+
+/// Create a Java string from a UTF-16 buffer. (UTF-8 creation is
+/// `newStringUTF` above.)
+pub inline fn newStringU16(env: *JNIEnv, chars: [*c]const jchar, len: jsize) jstring {
+    return envTable(env).NewString.?(env, chars, len);
+}
+pub inline fn getStringLength(env: *JNIEnv, s: jstring) jsize {
+    return envTable(env).GetStringLength.?(env, s);
+}
+pub inline fn getStringChars(env: *JNIEnv, s: jstring, is_copy: ?*jboolean) [*c]const jchar {
+    return envTable(env).GetStringChars.?(env, s, @as([*c]jboolean, @ptrCast(is_copy)));
+}
+pub inline fn releaseStringChars(env: *JNIEnv, s: jstring, chars: [*c]const jchar) void {
+    envTable(env).ReleaseStringChars.?(env, s, chars);
+}
+pub inline fn getStringUTFLength(env: *JNIEnv, s: jstring) jsize {
+    return envTable(env).GetStringUTFLength.?(env, s);
+}
+pub inline fn getStringRegion(env: *JNIEnv, s: jstring, start: jsize, len: jsize, buf: [*c]jchar) void {
+    envTable(env).GetStringRegion.?(env, s, start, len, buf);
+}
+pub inline fn getStringUTFRegion(env: *JNIEnv, s: jstring, start: jsize, len: jsize, buf: [*c]u8) void {
+    envTable(env).GetStringUTFRegion.?(env, s, start, len, buf);
+}
+pub inline fn getStringCritical(env: *JNIEnv, s: jstring, is_copy: ?*jboolean) [*c]const jchar {
+    return envTable(env).GetStringCritical.?(env, s, @as([*c]jboolean, @ptrCast(is_copy)));
+}
+pub inline fn releaseStringCritical(env: *JNIEnv, s: jstring, chars: [*c]const jchar) void {
+    envTable(env).ReleaseStringCritical.?(env, s, chars);
+}
+
+// -- Native method registration ---------------------------------------------
+
+pub fn registerNatives(env: *JNIEnv, clazz: jclass, methods: []const JNINativeMethod) !void {
+    const rc = envTable(env).RegisterNatives.?(env, clazz, methods.ptr, @as(jint, @intCast(methods.len)));
+    if (rc != JNI_OK) return error.RegisterNativesFailed;
+}
+pub fn unregisterNatives(env: *JNIEnv, clazz: jclass) !void {
+    const rc = envTable(env).UnregisterNatives.?(env, clazz);
+    if (rc != JNI_OK) return error.UnregisterNativesFailed;
+}
+
+// -- Monitor ----------------------------------------------------------------
+
+pub fn monitorEnter(env: *JNIEnv, obj: jobject) !void {
+    if (envTable(env).MonitorEnter.?(env, obj) != JNI_OK) return error.MonitorEnterFailed;
+}
+pub fn monitorExit(env: *JNIEnv, obj: jobject) !void {
+    if (envTable(env).MonitorExit.?(env, obj) != JNI_OK) return error.MonitorExitFailed;
+}
+
+// -- Direct ByteBuffer ------------------------------------------------------
+
+pub inline fn newDirectByteBuffer(env: *JNIEnv, addr: ?*anyopaque, capacity: jlong) jobject {
+    return envTable(env).NewDirectByteBuffer.?(env, addr, capacity);
+}
+pub inline fn getDirectBufferAddress(env: *JNIEnv, buf: jobject) ?*anyopaque {
+    return envTable(env).GetDirectBufferAddress.?(env, buf);
+}
+pub inline fn getDirectBufferCapacity(env: *JNIEnv, buf: jobject) jlong {
+    return envTable(env).GetDirectBufferCapacity.?(env, buf);
+}
+
+// -- JNI release-mode constants (exposed for callers that want raw mode) ---
+
+pub const JNI_COMMIT: jint = 1;
+pub const JNI_ABORT: jint = 2;
+
+// -- Typed field access (comptime-generic convenience) ----------------------
+
+fn fieldGetterFor(comptime T: type) fn (*JNIEnv, jobject, jfieldID) T {
+    return switch (T) {
+        bool => struct {
+            fn g(env: *JNIEnv, o: jobject, f: jfieldID) bool {
+                return getBooleanField(env, o, f);
+            }
+        }.g,
+        jbyte => struct {
+            fn g(env: *JNIEnv, o: jobject, f: jfieldID) jbyte {
+                return getByteField(env, o, f);
+            }
+        }.g,
+        jchar => struct {
+            fn g(env: *JNIEnv, o: jobject, f: jfieldID) jchar {
+                return getCharField(env, o, f);
+            }
+        }.g,
+        jshort => struct {
+            fn g(env: *JNIEnv, o: jobject, f: jfieldID) jshort {
+                return getShortField(env, o, f);
+            }
+        }.g,
+        jint => struct {
+            fn g(env: *JNIEnv, o: jobject, f: jfieldID) jint {
+                return getIntField(env, o, f);
+            }
+        }.g,
+        jlong => struct {
+            fn g(env: *JNIEnv, o: jobject, f: jfieldID) jlong {
+                return getLongField(env, o, f);
+            }
+        }.g,
+        jfloat => struct {
+            fn g(env: *JNIEnv, o: jobject, f: jfieldID) jfloat {
+                return getFloatField(env, o, f);
+            }
+        }.g,
+        jdouble => struct {
+            fn g(env: *JNIEnv, o: jobject, f: jfieldID) jdouble {
+                return getDoubleField(env, o, f);
+            }
+        }.g,
+        else => @compileError("jni.getField: unsupported type " ++ @typeName(T)),
+    };
+}
+
+/// Comptime-dispatch field accessor. For primitives, returns the primitive
+/// value. For `jobject`, returns the raw handle. For `ClassRef`-like types
+/// (those exposing `pub const java_sig`), wraps the raw handle in the
+/// target type.
+pub fn getField(comptime T: type, env: *JNIEnv, obj: jobject, fid: jfieldID) T {
+    if (T == jobject) return getObjectField(env, obj, fid);
+    const info = @typeInfo(T);
+    if (info == .@"struct" and @hasDecl(T, "java_sig")) {
+        return .{ .handle = getObjectField(env, obj, fid) };
+    }
+    return fieldGetterFor(T)(env, obj, fid);
+}
+
+pub fn setField(comptime T: type, env: *JNIEnv, obj: jobject, fid: jfieldID, v: T) void {
+    if (T == jobject) return setObjectField(env, obj, fid, v);
+    const info = @typeInfo(T);
+    if (info == .@"struct" and @hasDecl(T, "java_sig")) {
+        return setObjectField(env, obj, fid, v.handle);
+    }
+    switch (T) {
+        bool => setBooleanField(env, obj, fid, v),
+        jbyte => setByteField(env, obj, fid, v),
+        jchar => setCharField(env, obj, fid, v),
+        jshort => setShortField(env, obj, fid, v),
+        jint => setIntField(env, obj, fid, v),
+        jlong => setLongField(env, obj, fid, v),
+        jfloat => setFloatField(env, obj, fid, v),
+        jdouble => setDoubleField(env, obj, fid, v),
+        else => @compileError("jni.setField: unsupported type " ++ @typeName(T)),
+    }
+}
+
+pub fn getStaticField(comptime T: type, env: *JNIEnv, clazz: jclass, fid: jfieldID) T {
+    if (T == jobject) return getStaticObjectField(env, clazz, fid);
+    const info = @typeInfo(T);
+    if (info == .@"struct" and @hasDecl(T, "java_sig")) {
+        return .{ .handle = getStaticObjectField(env, clazz, fid) };
+    }
+    return switch (T) {
+        bool => getStaticBooleanField(env, clazz, fid),
+        jbyte => getStaticByteField(env, clazz, fid),
+        jchar => getStaticCharField(env, clazz, fid),
+        jshort => getStaticShortField(env, clazz, fid),
+        jint => getStaticIntField(env, clazz, fid),
+        jlong => getStaticLongField(env, clazz, fid),
+        jfloat => getStaticFloatField(env, clazz, fid),
+        jdouble => getStaticDoubleField(env, clazz, fid),
+        else => @compileError("jni.getStaticField: unsupported type " ++ @typeName(T)),
+    };
+}
+
+pub fn setStaticField(comptime T: type, env: *JNIEnv, clazz: jclass, fid: jfieldID, v: T) void {
+    if (T == jobject) return setStaticObjectField(env, clazz, fid, v);
+    const info = @typeInfo(T);
+    if (info == .@"struct" and @hasDecl(T, "java_sig")) {
+        return setStaticObjectField(env, clazz, fid, v.handle);
+    }
+    switch (T) {
+        bool => setStaticBooleanField(env, clazz, fid, v),
+        jbyte => setStaticByteField(env, clazz, fid, v),
+        jchar => setStaticCharField(env, clazz, fid, v),
+        jshort => setStaticShortField(env, clazz, fid, v),
+        jint => setStaticIntField(env, clazz, fid, v),
+        jlong => setStaticLongField(env, clazz, fid, v),
+        jfloat => setStaticFloatField(env, clazz, fid, v),
+        jdouble => setStaticDoubleField(env, clazz, fid, v),
+        else => @compileError("jni.setStaticField: unsupported type " ++ @typeName(T)),
+    }
+}
+
 // -- Comptime signature builder ---------------------------------------------
 
 /// Returns the one-character JNI descriptor for a primitive Zig type,
