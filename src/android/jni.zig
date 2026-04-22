@@ -386,17 +386,16 @@ pub inline fn getEnv(vm: *JavaVM, out_env: *?*anyopaque, version: jint) jint {
 pub fn sigOf(comptime T: type) []const u8 {
     return switch (T) {
         void => "V",
-        bool, jboolean => "Z",
-        jbyte, i8 => "B",
-        jchar, u16 => "C",
-        jshort, i16 => "S",
-        jint, i32 => "I",
-        jlong, i64 => "J",
-        jfloat, f32 => "F",
-        jdouble, f64 => "D",
+        bool, u8 => "Z", // u8 = jboolean
+        i8 => "B", // = jbyte
+        u16 => "C", // = jchar
+        i16 => "S", // = jshort
+        i32 => "I", // = jint
+        i64 => "J", // = jlong
+        f32 => "F", // = jfloat
+        f64 => "D", // = jdouble
         else => blk: {
             const info = @typeInfo(T);
-            // Optional jobject / jstring / etc map to "Ljava/lang/Object;".
             if (info == .optional and info.optional.child == *anyopaque) break :blk "Ljava/lang/Object;";
             if (T == jobject) break :blk "Ljava/lang/Object;";
             if (@hasDecl(T, "java_sig")) break :blk @as([]const u8, T.java_sig);
@@ -436,14 +435,14 @@ pub fn callInstanceByID(comptime F: type, env: *JNIEnv, obj: jobject, mid: jmeth
     const argp: [*c]const jvalue = if (jargs.len == 0) null else &jargs;
     return switch (Ret) {
         void => tbl.CallVoidMethodA.?(env, obj, mid, argp),
-        bool, jboolean => tbl.CallBooleanMethodA.?(env, obj, mid, argp) != 0,
-        jbyte => tbl.CallByteMethodA.?(env, obj, mid, argp),
-        jchar => tbl.CallCharMethodA.?(env, obj, mid, argp),
-        jshort => tbl.CallShortMethodA.?(env, obj, mid, argp),
-        jint => tbl.CallIntMethodA.?(env, obj, mid, argp),
-        jlong => tbl.CallLongMethodA.?(env, obj, mid, argp),
-        jfloat => tbl.CallFloatMethodA.?(env, obj, mid, argp),
-        jdouble => tbl.CallDoubleMethodA.?(env, obj, mid, argp),
+        bool, u8 => tbl.CallBooleanMethodA.?(env, obj, mid, argp) != 0,
+        i8 => tbl.CallByteMethodA.?(env, obj, mid, argp),
+        u16 => tbl.CallCharMethodA.?(env, obj, mid, argp),
+        i16 => tbl.CallShortMethodA.?(env, obj, mid, argp),
+        i32 => tbl.CallIntMethodA.?(env, obj, mid, argp),
+        i64 => tbl.CallLongMethodA.?(env, obj, mid, argp),
+        f32 => tbl.CallFloatMethodA.?(env, obj, mid, argp),
+        f64 => tbl.CallDoubleMethodA.?(env, obj, mid, argp),
         else => objectReturn(Ret, tbl.CallObjectMethodA.?(env, obj, mid, argp)),
     };
 }
@@ -458,14 +457,14 @@ pub fn callStaticByID(comptime F: type, env: *JNIEnv, clazz: jclass, mid: jmetho
     const argp: [*c]const jvalue = if (jargs.len == 0) null else &jargs;
     return switch (Ret) {
         void => tbl.CallStaticVoidMethodA.?(env, clazz, mid, argp),
-        bool, jboolean => tbl.CallStaticBooleanMethodA.?(env, clazz, mid, argp) != 0,
-        jbyte => tbl.CallStaticByteMethodA.?(env, clazz, mid, argp),
-        jchar => tbl.CallStaticCharMethodA.?(env, clazz, mid, argp),
-        jshort => tbl.CallStaticShortMethodA.?(env, clazz, mid, argp),
-        jint => tbl.CallStaticIntMethodA.?(env, clazz, mid, argp),
-        jlong => tbl.CallStaticLongMethodA.?(env, clazz, mid, argp),
-        jfloat => tbl.CallStaticFloatMethodA.?(env, clazz, mid, argp),
-        jdouble => tbl.CallStaticDoubleMethodA.?(env, clazz, mid, argp),
+        bool, u8 => tbl.CallStaticBooleanMethodA.?(env, clazz, mid, argp) != 0,
+        i8 => tbl.CallStaticByteMethodA.?(env, clazz, mid, argp),
+        u16 => tbl.CallStaticCharMethodA.?(env, clazz, mid, argp),
+        i16 => tbl.CallStaticShortMethodA.?(env, clazz, mid, argp),
+        i32 => tbl.CallStaticIntMethodA.?(env, clazz, mid, argp),
+        i64 => tbl.CallStaticLongMethodA.?(env, clazz, mid, argp),
+        f32 => tbl.CallStaticFloatMethodA.?(env, clazz, mid, argp),
+        f64 => tbl.CallStaticDoubleMethodA.?(env, clazz, mid, argp),
         else => objectReturn(Ret, tbl.CallStaticObjectMethodA.?(env, clazz, mid, argp)),
     };
 }
@@ -474,14 +473,14 @@ fn toJValue(comptime T: type, v: T) jvalue {
     return switch (T) {
         void => unreachable,
         bool => .{ .z = if (v) 1 else 0 },
-        jboolean => .{ .z = v },
-        jbyte => .{ .b = v },
-        jchar => .{ .c = v },
-        jshort => .{ .s = v },
-        jint => .{ .i = v },
-        jlong => .{ .j = v },
-        jfloat => .{ .f = v },
-        jdouble => .{ .d = v },
+        u8 => .{ .z = v },
+        i8 => .{ .b = v },
+        u16 => .{ .c = v },
+        i16 => .{ .s = v },
+        i32 => .{ .i = v },
+        i64 => .{ .j = v },
+        f32 => .{ .f = v },
+        f64 => .{ .d = v },
         else => blk: {
             if (comptime isClassRef(T)) break :blk .{ .l = v.handle };
             break :blk .{ .l = v };
