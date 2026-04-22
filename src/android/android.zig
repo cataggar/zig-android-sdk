@@ -12,6 +12,9 @@ const NativeActivityGlue = @import("NativeActivityGlue.zig");
 /// `App` via comptime reflection. See `NativeActivityGlue.zig` for details.
 pub const makeNativeActivityGlue = NativeActivityGlue.make;
 
+/// Typed JNI bridge. See `jni.zig`.
+pub const jni = @import("jni.zig");
+
 /// Cast an erased pointer to `*T`, combining the required `@alignCast` with
 /// the `@ptrCast`. Using this helper guarantees the `@alignCast` never gets
 /// dropped by accident (a footgun that previously required a patch in the
