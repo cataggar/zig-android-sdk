@@ -2,10 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const ndk = @import("ndk");
-const zig014 = @import("zig014");
-const zig015 = @import("zig015");
-const zig016 = @import("zig016");
-
+const compat = @import("compat.zig");
 const Logger = @import("Logger.zig");
 const Level = ndk.Level;
 
@@ -16,30 +13,17 @@ const NativeActivityGlue = @import("NativeActivityGlue.zig");
 pub const makeNativeActivityGlue = NativeActivityGlue.make;
 
 /// Alternate panic implementation that calls __android_log_write so that you can see the logging via "adb logcat"
-pub const panic = if (builtin.zig_version.major == 0 and builtin.zig_version.minor <= 15)
-    std.debug.FullPanic(@import("Zig015_Panic.zig").panic)
-else
-    std.debug.FullPanic(zig016.panic);
+pub const panic = std.debug.FullPanic(compat.panic);
 
 /// Alternate log function implementation that calls __android_log_write so that you can see the logging via "adb logcat"
-pub const logFn = if (builtin.zig_version.major == 0 and builtin.zig_version.minor <= 14)
-    zig014.LogWriter.logFn
-else if (builtin.zig_version.major == 0 and builtin.zig_version.minor <= 15)
-    zig015.wrapLogFn(androidLogFn)
-else
-    zig016.wrapLogFn(androidLogFn);
+pub const logFn = compat.wrapLogFn(androidLogFn);
 
 fn androidLogFn(
     comptime message_level: std.log.Level,
-    // NOTE(jae): 2026-01-10
-    // Just make our log function here use the precomputed text and get the Zig 0.15.2 and Zig 0.16.x-dev+
-    // implementation to pass in the following:
-    // - const scope_prefix_text = if (scope == .default) "" else "(" ++ @tagName(scope) ++ ")"; // "): ";
     comptime scope_prefix_text: [:0]const u8,
     comptime format: []const u8,
     args: anytype,
 ) void {
-    // If there are no arguments or '{}' patterns in the logging, just call Android log directly
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
     if (args_type_info != .@"struct") {
@@ -47,11 +31,10 @@ fn androidLogFn(
     }
 
     const android_log_level: Level = switch (message_level) {
-        //  => .ANDROID_LOG_VERBOSE, // No mapping
-        .debug => .debug, // android.ANDROID_LOG_DEBUG = 3,
-        .info => .info, // android.ANDROID_LOG_INFO = 4,
-        .warn => .warn, // android.ANDROID_LOG_WARN = 5,
-        .err => .err, // android.ANDROID_LOG_WARN = 6,
+        .debug => .debug,
+        .info => .info,
+        .warn => .warn,
+        .err => .err,
     };
 
     const fields_info = args_type_info.@"struct".fields;

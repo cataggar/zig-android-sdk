@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 
 const androidbuild = @import("src/androidbuild/androidbuild.zig");
 pub const ApiLevel = androidbuild.ApiLevel;
@@ -45,39 +44,6 @@ pub fn build(b: *std.Build) void {
     });
     android_module.addImport("ndk", ndk_module);
     android_module.addImport("android_builtin", android_builtin_module);
-
-    // Add backwards compatibility modules
-    if (builtin.zig_version.major == 0 and builtin.zig_version.minor <= 14) {
-        // Deprecated: Allow older Zig builds to work
-        var zig014 = b.createModule(.{
-            .root_source_file = b.path("src/android/zig014/zig014.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        zig014.addImport("ndk", ndk_module);
-        zig014.addImport("android_builtin", android_builtin_module);
-        android_module.addImport("zig014", zig014);
-    }
-    if (builtin.zig_version.major == 0 and builtin.zig_version.minor <= 15) {
-        // Add as a module to deal with @Type(.enum_literal) being deprecated
-        const zig015 = b.createModule(.{
-            .root_source_file = b.path("src/android/zig015/zig015.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        android_module.addImport("zig015", zig015);
-    }
-    if (builtin.zig_version.major == 0 and builtin.zig_version.minor >= 16) {
-        // Add as a module to deal with @Type(.enum_literal) being deprecated
-        const zig016 = b.createModule(.{
-            .root_source_file = b.path("src/android/zig016/zig016.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        zig016.addImport("ndk", ndk_module);
-        zig016.addImport("android_builtin", android_builtin_module);
-        android_module.addImport("zig016", zig016);
-    }
 
     android_module.linkSystemLibrary("log", .{});
 }
