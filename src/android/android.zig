@@ -15,6 +15,11 @@ pub const makeNativeActivityGlue = NativeActivityGlue.make;
 /// Typed JNI bridge. See `jni.zig`.
 pub const jni = @import("jni.zig");
 
+/// Ergonomic helpers built on top of `jni.zig` — `registerNativesFor`,
+/// `getEnv`, `attachCurrentThread`, and a `method()` builder for
+/// `JNINativeMethod` literals. See `jni_helpers.zig`.
+pub const jni_helpers = @import("jni_helpers.zig");
+
 /// Cast an erased pointer to `*T`, combining the required `@alignCast` with
 /// the `@ptrCast`. Using this helper guarantees the `@alignCast` never gets
 /// dropped by accident (a footgun that previously required a patch in the

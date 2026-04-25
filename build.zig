@@ -118,4 +118,19 @@ pub fn build(b: *std.Build) void {
     const run_bindgen_tests = b.addRunArtifact(bindgen_tests);
     const test_bindgen_step = b.step("test-bindgen", "Run bindgen tests");
     test_bindgen_step.dependOn(&run_bindgen_tests.step);
+
+    // Host-runnable tests for `jni_helpers.zig`. The helpers themselves
+    // don't touch any NDK headers — they only call the Zig wrappers in
+    // `jni.zig` — so they build for the host target and exercise the
+    // comptime-only logic (e.g. the `method()` builder).
+    const jni_helpers_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/android/jni_helpers.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
+    });
+    const run_jni_helpers_tests = b.addRunArtifact(jni_helpers_tests);
+    const test_jni_helpers_step = b.step("test-jni-helpers", "Run jni_helpers tests");
+    test_jni_helpers_step.dependOn(&run_jni_helpers_tests.step);
 }
