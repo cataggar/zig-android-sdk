@@ -14,7 +14,7 @@ concurrency:
 env:
   CI_JAVA_VERSION: 17
   # 35.0.0 = Android 15
-  CI_ANDROID_SDK: "tools platform-tools platforms;android-35 build-tools;35.0.1 ndk;29.0.13113456"
+  CI_ANDROID_SDK: "platform-tools platforms;android-35 build-tools;35.0.1 ndk;29.0.13113456"
   CI_ZIG_PREVIOUS_STABLE_VERSION: "0.17.0"
   CI_ZIG_STABLE_VERSION: "0.17.0"
 
