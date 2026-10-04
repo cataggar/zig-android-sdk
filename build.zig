@@ -35,7 +35,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(build_tool);
     const generator_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/androidbuild/builtin_generator.zig"),
+            .root_source_file = b.path("src/androidbuild/build_tool_tests.zig"),
             .target = b.graph.host,
             .optimize = optimize,
         }),
