@@ -62,7 +62,9 @@ zig build test-classfile test-bindgen test-jni-helpers test-native-activity test
 ```
 
 NativeActivity callback glue supports both single-item Zig pointers and the C
-pointers emitted by `cataggar/translate-c` for real NDK headers.
+pointers emitted by `cataggar/translate-c` for real NDK headers. Saved-state
+callbacks retain their declared pointer return ABI, including the NDK's
+nullable opaque pointer.
 
 Zig 0.17 separates build configuration from execution and no longer supports
 custom make callbacks. APK builds now use a host-side package-name generator,

@@ -65,7 +65,7 @@ fn makeField(comptime App: type, comptime name: []const u8, comptime OptFn: type
     if (std.mem.eql(u8, name, "onSaveInstanceState")) {
         if (!@hasDecl(App, "onSaveInstanceState")) return null;
         const SizePtr = params[1].?;
-        return &SaveThunk(App, Activity, SizePtr).cb;
+        return &SaveThunk(App, Activity, SizePtr, fi.@"fn".return_type.?).cb;
     }
 
     if (!@hasDecl(App, name)) return null;
@@ -141,15 +141,15 @@ fn DestroyThunk(comptime App: type, comptime Activity: type) type {
     };
 }
 
-fn SaveThunk(comptime App: type, comptime Activity: type, comptime SizePtr: type) type {
+fn SaveThunk(comptime App: type, comptime Activity: type, comptime SizePtr: type, comptime Return: type) type {
     return struct {
-        fn cb(activity: Activity, out_size: SizePtr) callconv(.c) ?[*]u8 {
+        fn cb(activity: Activity, out_size: SizePtr) callconv(.c) Return {
             out_size.* = 0;
             const app = appFromActivity(App, activity) orelse return null;
             const optional_slice: ?[]u8 = app.onSaveInstanceState(std.heap.c_allocator);
             if (optional_slice) |slice| {
                 out_size.* = slice.len;
-                return slice.ptr;
+                return @ptrCast(slice.ptr);
             }
 
             return null;
@@ -196,5 +196,35 @@ test "callback reflection forwards arguments and preserves absent callbacks" {
         activity.instance = null;
         callbacks.onResize.?(&activity, 1, 1);
         try std.testing.expectEqual(@as(c_int, 640), app.width);
+    }
+}
+
+test "saved-state thunk preserves the NDK opaque pointer return ABI" {
+    const Activity = extern struct { instance: ?*anyopaque = null };
+    const App = struct {
+        save: bool = false,
+
+        pub fn onSaveInstanceState(self: *@This(), allocator: std.mem.Allocator) ?[]u8 {
+            if (!self.save) return null;
+            return allocator.dupe(u8, "state") catch @panic("OOM");
+        }
+    };
+    inline for (.{ *Activity, [*c]Activity }) |ActivityPtr| {
+        inline for (.{ ?[*]u8, ?*anyopaque }) |SavedPtr| {
+            const Callbacks = extern struct {
+                onSaveInstanceState: ?*const fn (ActivityPtr, [*c]usize) callconv(.c) SavedPtr,
+            };
+            var app: App = .{};
+            var activity: Activity = .{ .instance = &app };
+            const callbacks = make(App, Callbacks);
+            var size: usize = 123;
+            try std.testing.expect(callbacks.onSaveInstanceState.?(&activity, &size) == null);
+            try std.testing.expectEqual(@as(usize, 0), size);
+            app.save = true;
+            const saved = callbacks.onSaveInstanceState.?(&activity, &size) orelse return error.TestUnexpectedResult;
+            const bytes: [*]u8 = @ptrCast(saved);
+            defer std.heap.c_allocator.free(bytes[0..size]);
+            try std.testing.expectEqualStrings("state", bytes[0..size]);
+        }
     }
 }

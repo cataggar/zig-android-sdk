@@ -156,6 +156,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/android/NativeActivityGlue.zig"),
             .target = b.graph.host,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     b.step("test-native-activity", "Run callback glue tests").dependOn(&b.addRunArtifact(glue_tests).step);
