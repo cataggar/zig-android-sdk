@@ -349,7 +349,8 @@ pub fn createOrGetLibCFile(sdk: *Sdk, compile: *Step.Compile, android_api_level:
         \\# Only needed when targeting MSVC on Windows.
         \\kernel32_lib_dir=
         \\
-        \\gcc_dir=
+        \\cc_dir=
+        \\darwin_sdk_dir=
     ;
 
     const include_dir = b.fmt("{s}/usr/include", .{ndk_sysroot_path});
