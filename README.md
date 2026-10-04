@@ -44,11 +44,35 @@ pub fn build(b: *std.Build) !void {
 
 ## Requirements
 
-* [Zig](https://ziglang.org/download)
+* [Zig 0.17.0](https://ziglang.org/download)
 * Android Tools
     * Option A: [Android Studio](https://developer.android.com/studio)
     * Option B: [Android Command Line Tools](https://developer.android.com/studio#command-line-tools-only)
 * [Java Development Kit](https://www.oracle.com/au/java/technologies/downloads/)
+
+The source build hooks (`Sdk`, `Apk`, `ApiLevel`, and `standardTargets`) remain
+available to consumers importing `android` from `build.zig`. Android API 35,
+NDK `29.0.13113456`, build-tools `35.0.1`, and the x86, x86_64, ARM, and AArch64
+ABI set are unchanged. Zig 0.17 host support starts at Linux 5.10 and macOS 15.
+
+Host-side parser, generator, and JNI helper tests need no Android installation:
+
+```sh
+zig build test-classfile test-bindgen test-jni-helpers test-native-activity test-build-tools -j2
+```
+
+NativeActivity callback glue supports both single-item Zig pointers and the C
+pointers emitted by `cataggar/translate-c` for real NDK headers. Saved-state
+callbacks retain their declared pointer return ABI, including the NDK's
+nullable opaque pointer.
+
+Zig 0.17 separates build configuration from execution and no longer supports
+custom make callbacks. APK builds now use a host-side package-name generator,
+tracked resource/asset directory copies, and a JAR of generated Java classes
+as D8 input. This preserves the generated `android_builtin.package_name`
+sentinel string, nested classes, and generated-directory support. SDK discovery
+is re-run at configuration time so installing/removing tools is never hidden
+by a stale configuration.
 
 ## Installation
 

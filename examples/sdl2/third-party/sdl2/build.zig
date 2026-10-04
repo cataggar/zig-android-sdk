@@ -153,10 +153,11 @@ pub fn build(b: *std.Build) !void {
     // mod.installHeadersDirectory("include", "SDL");
     b.installArtifact(lib);
 
-    var sdl_c_module = b.addTranslateC(.{
+    const sdl_c_module: @import("translate_c").Translator = .init(b.dependency("translate_c", .{}), .{
+        .name = "sdl-c",
         .target = target,
-        .optimize = .ReleaseFast,
-        .root_source_file = b.path("src/sdl.h"),
+        .optimize = .fast,
+        .c_source_file = b.path("src/sdl.h"),
     });
     // if (sdl_config_header) |config_header| {
     //     sdl_c_module.addConfigHeader(config_header);
@@ -182,11 +183,7 @@ pub fn build(b: *std.Build) !void {
         }
     }
 
-    _ = b.addModule("sdl", .{
-        .target = target,
-        .optimize = optimize,
-        .root_source_file = sdl_c_module.getOutput(),
-    });
+    b.modules.put(b.allocator, b.dupe("sdl"), sdl_c_module.mod) catch @panic("OOM");
 }
 
 const generic_src_files = [_][]const u8{

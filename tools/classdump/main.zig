@@ -12,7 +12,8 @@ const classfile = @import("classfile");
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
 
-    var args_it = init.minimal.args.iterate();
+    var args_it = try init.minimal.args.iterateAllocator(init.gpa);
+    defer args_it.deinit();
     _ = args_it.next(); // argv[0]
 
     const first = args_it.next() orelse {
