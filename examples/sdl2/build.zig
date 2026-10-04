@@ -54,8 +54,8 @@ pub fn build(b: *std.Build) void {
             .target = android_targets[0],
         });
         const sdl_java_files = sdl_dep.namedWriteFiles("sdljava");
-        for (sdl_java_files.files.items) |file| {
-            apk.addJavaSourceFile(.{ .file = file.contents.copy });
+        for (sdl_java_files.copies.items) |file| {
+            apk.addJavaSourceFile(.{ .file = file.src_file });
         }
         break :blk apk;
     };

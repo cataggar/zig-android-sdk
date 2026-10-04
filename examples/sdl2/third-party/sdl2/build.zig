@@ -183,7 +183,7 @@ pub fn build(b: *std.Build) !void {
         }
     }
 
-    b.modules.put(b.dupe("sdl"), sdl_c_module.mod) catch @panic("OOM");
+    b.modules.put(b.allocator, b.dupe("sdl"), sdl_c_module.mod) catch @panic("OOM");
 }
 
 const generic_src_files = [_][]const u8{
