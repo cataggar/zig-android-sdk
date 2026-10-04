@@ -58,6 +58,8 @@ const Options = struct {};
 
 pub fn create(b: *std.Build, options: Options) *Sdk {
     _ = options;
+    // Tool discovery observes PATH and SDK directory availability.
+    b.graph.poisonCache();
 
     const host_os_tag = b.graph.host.result.os.tag;
 
@@ -226,16 +228,13 @@ pub fn addAdbInstall(sdk: *Sdk, apk: LazyPath) *Step.Run {
 pub fn addSdkManagerStep(sdk: *Sdk) void {
     const b = sdk.b;
     const sdkmanager_step = b.step("sdkmanager", "Run the Android SDK Manager");
-    const args = b.args orelse &.{};
     const sdkmanager = b.addSystemCommand(&.{sdk.cmdline_tools.sdkmanager});
     sdkmanager.setEnvironmentVariable("SKIP_JDK_VERSION_CHECK", "1");
-    if (b.verbose) {
+    if (b.graph.verbose) {
         sdkmanager.addArg("--verbose");
     }
     sdkmanager_step.dependOn(&sdkmanager.step);
-    for (args) |arg| {
-        sdkmanager.addArg(arg);
-    }
+    sdkmanager.addPassthruArgs();
 }
 
 pub const CreateKey = struct {
@@ -355,7 +354,7 @@ pub fn createOrGetLibCFile(sdk: *Sdk, compile: *Step.Compile, android_api_level:
 
     const include_dir = b.fmt("{s}/usr/include", .{ndk_sysroot_path});
     const sys_include_dir = b.fmt("{s}/usr/include/{s}", .{ ndk_sysroot_path, system_target });
-    const crt_dir = b.fmt("{s}/usr/lib/{s}/{d}", .{ ndk_sysroot_path, system_target, @intFromEnum(android_api_level) });
+    const crt_dir = b.fmt("{s}/usr/lib/{s}/{d}", .{ ndk_sysroot_path, system_target, @backingInt(android_api_level) });
 
     const libc_file_contents = b.fmt(libc_file_format, .{
         .include_dir = include_dir,
@@ -363,7 +362,7 @@ pub fn createOrGetLibCFile(sdk: *Sdk, compile: *Step.Compile, android_api_level:
         .crt_dir = crt_dir,
     });
 
-    const filename = b.fmt("android-libc_target-{s}_version-{}_ndk-{s}.conf", .{ system_target, @intFromEnum(android_api_level), ndk_version });
+    const filename = b.fmt("android-libc_target-{s}_version-{}_ndk-{s}.conf", .{ system_target, @backingInt(android_api_level), ndk_version });
 
     const write_file = b.addWriteFiles();
     const android_libc_path = write_file.add(filename, libc_file_contents);
@@ -547,15 +546,18 @@ const PathSearch = struct {
                 //     &b.graph.environ_map;
                 const maybe_user: ?[]const u8 = environ_map.get("USER") orelse null;
                 if (maybe_user) |user| {
-                    const jarsigner_path = b.findProgram(&.{"jarsigner"}, &.{
-                        // NOTE(jae): 2026-01-10
-                        // I manually put my install here, not standard per-se but I see no reason to not support this.
-                        b.fmt("/home/{s}/android-studio/jbr/bin", .{user}),
-                        // NOTE(jae): 2026-01-10
-                        // Suggested install locations for Android Studio from: https://developer.android.com/studio/install
-                        "/usr/local/android-studio/jbr/bin", // for your user profile
-                        "/opt/android-studio/jbr/bin", // for shared users
-                    }) catch break :jdkpath null;
+                    const jarsigner_path = b.findProgram(.{
+                        .names = &.{
+                            // NOTE(jae): 2026-01-10
+                            // I manually put my install here, not standard per-se but I see no reason to not support this.
+                            b.fmt("/home/{s}/android-studio/jbr/bin/jarsigner", .{user}),
+                            // NOTE(jae): 2026-01-10
+                            // Suggested install locations for Android Studio from: https://developer.android.com/studio/install
+                            "/usr/local/android-studio/jbr/bin/jarsigner", // for your user profile
+                            "/opt/android-studio/jbr/bin/jarsigner", // for shared users
+                            "jarsigner",
+                        },
+                    }) orelse break :jdkpath null;
                     const jbr_bin_dir = std.fs.path.dirname(jarsigner_path) orelse break :jdkpath null;
                     const jbr_dir = std.fs.path.dirname(jbr_bin_dir) orelse break :jdkpath null;
                     break :jdkpath jbr_dir;

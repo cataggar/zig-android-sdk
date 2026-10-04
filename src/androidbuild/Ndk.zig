@@ -129,7 +129,7 @@ pub fn validateApiLevel(ndk: *const Ndk, b: *std.Build, api_level: ApiLevel, err
     _ = blk: {
         // "x86" has existed since Android 4.1 (API version 16)
         const x86_system_target = "i686-linux-android";
-        const ndk_sysroot_target_api_version = b.fmt("{s}/usr/lib/{s}/{d}", .{ ndk.sysroot_path, x86_system_target, @intFromEnum(api_level) });
+        const ndk_sysroot_target_api_version = b.fmt("{s}/usr/lib/{s}/{d}", .{ ndk.sysroot_path, x86_system_target, @backingInt(api_level) });
 
         const access_wrapped_error = if (builtin.zig_version.major == 0 and builtin.zig_version.minor <= 15)
             std.fs.accessAbsolute(ndk_sysroot_target_api_version, .{})
@@ -139,7 +139,7 @@ pub fn validateApiLevel(ndk: *const Ndk, b: *std.Build, api_level: ApiLevel, err
             error.FileNotFound => {
                 const message = b.fmt("Android NDK version '{s}' does not support API Level {d}. No folder at '{s}'", .{
                     ndk.version,
-                    @intFromEnum(api_level),
+                    @backingInt(api_level),
                     ndk_sysroot_target_api_version,
                 });
                 errors.append(b.allocator, message) catch @panic("OOM");
@@ -148,7 +148,7 @@ pub fn validateApiLevel(ndk: *const Ndk, b: *std.Build, api_level: ApiLevel, err
             else => {
                 const message = b.fmt("Android NDK version '{s}' API Level {d} had unexpected error: {s}, at: '{s}'", .{
                     ndk.version,
-                    @intFromEnum(api_level),
+                    @backingInt(api_level),
                     @errorName(err),
                     ndk_sysroot_target_api_version,
                 });
@@ -165,7 +165,7 @@ pub fn validateApiLevel(ndk: *const Ndk, b: *std.Build, api_level: ApiLevel, err
         const root_jar = b.pathResolve(&[_][]const u8{
             ndk.android_sdk_path,
             "platforms",
-            b.fmt("android-{d}", .{@intFromEnum(api_level)}),
+            b.fmt("android-{d}", .{@backingInt(api_level)}),
             "android.jar",
         });
         const access_wrapped_error = if (builtin.zig_version.major == 0 and builtin.zig_version.minor <= 15)
@@ -175,7 +175,7 @@ pub fn validateApiLevel(ndk: *const Ndk, b: *std.Build, api_level: ApiLevel, err
         access_wrapped_error catch |err| switch (err) {
             error.FileNotFound => {
                 const message = b.fmt("Android API level {d} not installed. Unable to find '{s}'", .{
-                    @intFromEnum(api_level),
+                    @backingInt(api_level),
                     root_jar,
                 });
                 errors.append(b.allocator, message) catch @panic("OOM");
@@ -183,7 +183,7 @@ pub fn validateApiLevel(ndk: *const Ndk, b: *std.Build, api_level: ApiLevel, err
             },
             else => {
                 const message = b.fmt("Android API level {d} had unexpected error: {s}, at: '{s}'", .{
-                    @intFromEnum(api_level),
+                    @backingInt(api_level),
                     @errorName(err),
                     root_jar,
                 });

@@ -44,7 +44,7 @@ pub fn panic(message: []const u8, first_trace_addr: ?usize) noreturn {
     @branchHint(.cold);
     if (comptime !builtin.abi.isAndroid()) @compileError("do not use Android panic for non-Android builds");
 
-    const android_log_level: c_int = @intFromEnum(ndk.Level.fatal);
+    const android_log_level: c_int = @backingInt(ndk.Level.fatal);
 
     trace: {
         _ = ndk.__android_log_print(android_log_level, package_name, "panic: %.*s", message.len, message.ptr);
@@ -81,7 +81,7 @@ pub fn writeStackTrace(st: *const std.builtin.StackTrace) !void {
 
     if (n_frames > captured_frames) {
         _ = ndk.__android_log_print(
-            @intFromEnum(ndk.Level.fatal),
+            @backingInt(ndk.Level.fatal),
             package_name,
             "(%d additional stack frames skipped...)",
             n_frames - captured_frames,
@@ -91,7 +91,7 @@ pub fn writeStackTrace(st: *const std.builtin.StackTrace) !void {
 
 inline fn logFatal(text: []const u8) void {
     _ = ndk.__android_log_print(
-        @intFromEnum(ndk.Level.fatal),
+        @backingInt(ndk.Level.fatal),
         package_name,
         "%.*s",
         text.len,

@@ -24,7 +24,7 @@ pub fn build(b: *std.Build) void {
             .name = exe_name,
             .api_level = .android15,
             .build_tools_version = "36.1.0",
-            .ndk_version = "29.0.14206865",
+            .ndk_version = "29.0.13113456",
         });
 
         const key_store_file = android_sdk.createKeyStore(.example);
@@ -73,7 +73,7 @@ pub fn build(b: *std.Build) void {
             // In Zig 0.14.0, for Android builds, make sure we build libraries with ReleaseSafe
             // otherwise we get errors relating to libubsan_rt.a getting RELOCATION errors
             // https://github.com/silbinarywolf/zig-android-sdk/issues/18
-            if (optimize == .Debug) .ReleaseSafe else optimize;
+            if (optimize == .debug) .safe else optimize;
 
         // add SDL2
         {

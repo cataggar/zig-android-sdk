@@ -24,6 +24,23 @@ pub const APK = @compileError("Use android.Apk instead of android.APK");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const build_tool = b.addExecutable(.{
+        .name = "android-build-tool",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/androidbuild/tool_main.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
+    });
+    b.installArtifact(build_tool);
+    const generator_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/androidbuild/builtin_generator.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
+    });
+    b.step("test-build-tools", "Run APK build helper tests").dependOn(&b.addRunArtifact(generator_tests).step);
 
     // Create stub of builtin options.
     // This is discovered and then replaced by "Apk" in the build process
@@ -68,7 +85,7 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(classdump_exe);
     const run_classdump = b.addRunArtifact(classdump_exe);
-    if (b.args) |args| run_classdump.addArgs(args);
+    run_classdump.addPassthruArgs();
     const classdump_step = b.step("classdump", "Dump a single .class file (smoke test for the classfile parser)");
     classdump_step.dependOn(&run_classdump.step);
 
@@ -103,7 +120,7 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(bindgen_exe);
     const run_bindgen = b.addRunArtifact(bindgen_exe);
-    if (b.args) |args| run_bindgen.addArgs(args);
+    run_bindgen.addPassthruArgs();
     const bindgen_step = b.step("bindgen", "Generate Zig bindings from a .jar file");
     bindgen_step.dependOn(&run_bindgen.step);
 
@@ -133,4 +150,13 @@ pub fn build(b: *std.Build) void {
     const run_jni_helpers_tests = b.addRunArtifact(jni_helpers_tests);
     const test_jni_helpers_step = b.step("test-jni-helpers", "Run jni_helpers tests");
     test_jni_helpers_step.dependOn(&run_jni_helpers_tests.step);
+
+    const glue_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/android/NativeActivityGlue.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
+    });
+    b.step("test-native-activity", "Run callback glue tests").dependOn(&b.addRunArtifact(glue_tests).step);
 }

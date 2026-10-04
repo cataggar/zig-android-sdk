@@ -93,3 +93,24 @@ test "method() builder fills JNINativeMethod fields" {
         m.fnPtr,
     );
 }
+
+test "typed JNI signatures and argument dispatch" {
+    const F = fn (i32, bool, jni.String) i64;
+    try std.testing.expectEqualStrings("(IZLjava/lang/String;)J", comptime jni.sigOfFn(F));
+    const callbacks = struct {
+        fn call(_: *jni.JNIEnv, _: jni.jobject, _: jni.jmethodID, args: [*c]const jni.jvalue) callconv(.c) jni.jlong {
+            std.debug.assert(args[0].i == 42);
+            std.debug.assert(args[1].z == 1);
+            std.debug.assert(args[2].l == null);
+            return 73;
+        }
+    };
+    var table: jni.JNINativeInterface = std.mem.zeroes(jni.JNINativeInterface);
+    table.CallLongMethodA = &callbacks.call;
+    table.CallStaticLongMethodA = &callbacks.call;
+    var table_ptr: *const jni.JNINativeInterface = &table;
+    const env: *jni.JNIEnv = @ptrCast(&table_ptr);
+    const args = .{ @as(i32, 42), true, jni.String{ .handle = null } };
+    try std.testing.expectEqual(@as(i64, 73), jni.callInstanceByID(F, env, null, null, args));
+    try std.testing.expectEqual(@as(i64, 73), jni.callStaticByID(F, env, null, null, args));
+}

@@ -1,7 +1,12 @@
 .{
     .name = .sdl,
     .version = "2.32.10",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
+        .translate_c = .{
+            .url = "git+https://github.com/cataggar/translate-c#62d06a5d3e93c82727544e8113e4762a315ca0ed",
+            .hash = "translate_c-2.0.0-Q_BUWlpOBwBWvgGBM20tJq-GXgPio3v3UD39rXEn70KN",
+        },
         .sdl2 = .{
             // NOTE(jae): 2024-06-30
             // Using ".zip" as "tar.gz" fails on Windows for Zig 0.13.0 due to symlink issue with something in the android folders
