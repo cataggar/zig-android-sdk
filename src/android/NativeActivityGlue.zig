@@ -79,7 +79,7 @@ fn makeField(comptime App: type, comptime name: []const u8, comptime OptFn: type
 }
 
 fn appFromActivity(comptime App: type, activity: anytype) ?*App {
-    const instance = activity.instance orelse return null;
+    const instance = activity.*.instance orelse return null;
     return @ptrCast(@alignCast(instance));
 }
 
@@ -159,12 +159,6 @@ fn SaveThunk(comptime App: type, comptime Activity: type, comptime SizePtr: type
 
 test "callback reflection forwards arguments and preserves absent callbacks" {
     const Activity = extern struct { instance: ?*anyopaque = null };
-    const Callbacks = extern struct {
-        onStart: ?*const fn (*Activity) callconv(.c) void,
-        onWindowFocusChanged: ?*const fn (*Activity, c_int) callconv(.c) void,
-        onResize: ?*const fn (*Activity, c_int, c_int) callconv(.c) void,
-        onPause: ?*const fn (*Activity) callconv(.c) void,
-    };
     const App = struct {
         started: bool = false,
         focused: bool = false,
@@ -182,17 +176,25 @@ test "callback reflection forwards arguments and preserves absent callbacks" {
             self.height = height;
         }
     };
-    var app: App = .{};
-    var activity: Activity = .{ .instance = &app };
-    const callbacks = make(App, Callbacks);
-    try std.testing.expect(callbacks.onPause == null);
-    callbacks.onStart.?(&activity);
-    callbacks.onWindowFocusChanged.?(&activity, 1);
-    callbacks.onResize.?(&activity, 640, 480);
-    try std.testing.expect(app.started and app.focused);
-    try std.testing.expectEqual(@as(c_int, 640), app.width);
-    try std.testing.expectEqual(@as(c_int, 480), app.height);
-    activity.instance = null;
-    callbacks.onResize.?(&activity, 1, 1);
-    try std.testing.expectEqual(@as(c_int, 640), app.width);
+    inline for (.{ *Activity, [*c]Activity }) |ActivityPtr| {
+        const Callbacks = extern struct {
+            onStart: ?*const fn (ActivityPtr) callconv(.c) void,
+            onWindowFocusChanged: ?*const fn (ActivityPtr, c_int) callconv(.c) void,
+            onResize: ?*const fn (ActivityPtr, c_int, c_int) callconv(.c) void,
+            onPause: ?*const fn (ActivityPtr) callconv(.c) void,
+        };
+        var app: App = .{};
+        var activity: Activity = .{ .instance = &app };
+        const callbacks = make(App, Callbacks);
+        try std.testing.expect(callbacks.onPause == null);
+        callbacks.onStart.?(&activity);
+        callbacks.onWindowFocusChanged.?(&activity, 1);
+        callbacks.onResize.?(&activity, 640, 480);
+        try std.testing.expect(app.started and app.focused);
+        try std.testing.expectEqual(@as(c_int, 640), app.width);
+        try std.testing.expectEqual(@as(c_int, 480), app.height);
+        activity.instance = null;
+        callbacks.onResize.?(&activity, 1, 1);
+        try std.testing.expectEqual(@as(c_int, 640), app.width);
+    }
 }

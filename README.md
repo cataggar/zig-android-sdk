@@ -61,6 +61,9 @@ Host-side parser, generator, and JNI helper tests need no Android installation:
 zig build test-classfile test-bindgen test-jni-helpers test-native-activity test-build-tools -j2
 ```
 
+NativeActivity callback glue supports both single-item Zig pointers and the C
+pointers emitted by `cataggar/translate-c` for real NDK headers.
+
 Zig 0.17 separates build configuration from execution and no longer supports
 custom make callbacks. APK builds now use a host-side package-name generator,
 tracked resource/asset directory copies, and a JAR of generated Java classes
