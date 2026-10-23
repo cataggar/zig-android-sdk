@@ -102,7 +102,7 @@ pub fn parse(
     var i: u16 = 1;
     while (i < count) {
         const tag_byte = try r.readU8();
-        const tag: Tag = @enumFromInt(tag_byte);
+        const tag: Tag = @fromBackingInt(@intCast(tag_byte));
         entries[i] = switch (tag) {
             .utf8 => blk: {
                 const len = try r.readU16();

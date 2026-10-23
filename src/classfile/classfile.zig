@@ -336,6 +336,6 @@ test "parseClass: minimal fixture (Foo with ConstantValue + native method)" {
 
 test "parseClass: bad magic rejected" {
     const a = std.testing.allocator;
-    const bad = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF } ++ ([_]u8{0} ** 16);
+    const bad = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF } ++ @as([16]u8, @splat(0));
     try std.testing.expectError(error.BadMagic, parseClass(a, &bad));
 }

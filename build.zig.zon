@@ -1,11 +1,13 @@
 .{
     .name = .android,
     .version = "0.3.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{},
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
+        "tools",
     },
     .fingerprint = 0x92bcb62d42fb2cee,
 }

@@ -51,7 +51,7 @@ pub fn build(b: *std.Build) void {
             b.dependency("raylib_zig", .{
                 .target = target,
                 .optimize = optimize,
-                .android_api_version = @as([]const u8, b.fmt("{}", .{@intFromEnum(apk.api_level)})),
+                .android_api_version = @as([]const u8, b.fmt("{}", .{@backingInt(apk.api_level)})),
                 .android_ndk = @as([]const u8, apk.ndk.path),
                 // NOTE(jae): 2026-04-09
                 // Must be statically built for Android, otherwise "android_main" is not handled here:

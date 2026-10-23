@@ -4,25 +4,27 @@ const std = @import("std");
 
 /// Zig reserved words we'll need to escape when a Java identifier collides.
 const zig_keywords = [_][]const u8{
-    "addrspace",       "align",      "allowzero",  "and",           "anyframe",    "anytype",     "asm",          "async",
-    "await",           "break",      "callconv",   "catch",         "comptime",    "const",       "continue",     "defer",
-    "else",            "enum",       "errdefer",   "error",         "export",      "extern",      "fn",           "for",
-    "if",              "inline",     "linksection","noalias",       "noinline",    "nosuspend",   "null",         "opaque",
-    "or",              "orelse",     "packed",     "pub",           "resume",      "return",      "struct",       "suspend",
-    "switch",          "test",       "threadlocal","true",          "try",         "undefined",   "union",        "unreachable",
-    "usingnamespace",  "var",        "volatile",   "while",         "false",       "void",
+    "addrspace",      "align",  "allowzero",   "and",     "anyframe", "anytype",   "asm",      "async",
+    "await",          "break",  "callconv",    "catch",   "comptime", "const",     "continue", "defer",
+    "else",           "enum",   "errdefer",    "error",   "export",   "extern",    "fn",       "for",
+    "if",             "inline", "linksection", "noalias", "noinline", "nosuspend", "null",     "opaque",
+    "or",             "orelse", "packed",      "pub",     "resume",   "return",    "struct",   "suspend",
+    "switch",         "test",   "threadlocal", "true",    "try",      "undefined", "union",    "unreachable",
+    "usingnamespace", "var",    "volatile",    "while",   "false",    "void",
 };
 
 /// Zig primitive types/values — not reserved words, but shadow errors at
 /// declaration sites. We escape them the same way.
 const zig_primitives = [_][]const u8{
-    "type",       "anyerror", "anyopaque", "anytype",
-    "bool",       "comptime_int", "comptime_float",
-    "f16",        "f32", "f64", "f80", "f128",
-    "i0", "i8", "i16", "i32", "i64", "i128",
-    "u0", "u8", "u16", "u32", "u64", "u128",
-    "isize",      "usize", "c_char", "c_short", "c_ushort",
-    "c_int",      "c_uint", "c_long", "c_ulong", "c_longlong", "c_ulonglong", "c_longdouble",
+    "type",     "anyerror",     "anyopaque",      "anytype",
+    "bool",     "comptime_int", "comptime_float", "f16",
+    "f32",      "f64",          "f80",            "f128",
+    "i0",       "i8",           "i16",            "i32",
+    "i64",      "i128",         "u0",             "u8",
+    "u16",      "u32",          "u64",            "u128",
+    "isize",    "usize",        "c_char",         "c_short",
+    "c_ushort", "c_int",        "c_uint",         "c_long",
+    "c_ulong",  "c_longlong",   "c_ulonglong",    "c_longdouble",
 };
 
 pub fn isZigKeyword(s: []const u8) bool {

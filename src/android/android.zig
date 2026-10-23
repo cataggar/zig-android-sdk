@@ -55,7 +55,7 @@ fn androidLogFn(
         .err => .err,
     };
 
-    const fields_info = args_type_info.@"struct".fields;
+    const fields_info = args_type_info.@"struct".field_names;
     if (fields_info.len == 0 and
         comptime std.mem.indexOfScalar(u8, format, '{') == null)
     {

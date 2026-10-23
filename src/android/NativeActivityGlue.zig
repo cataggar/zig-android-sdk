@@ -1,5 +1,5 @@
 //! Comptime-driven glue that binds user-defined `AndroidApp` methods to the
-//! ANativeActivity callback table. Requires Zig 0.16+.
+//! ANativeActivity callback table. Requires Zig 0.17+.
 //!
 //! Usage (from an example or an app):
 //!
@@ -38,48 +38,48 @@ pub fn make(comptime App: type, comptime Callbacks: type) Callbacks {
             @compileError("makeNativeActivityGlue: Callbacks must be a struct");
     }
     var cbs: Callbacks = std.mem.zeroes(Callbacks);
-    inline for (@typeInfo(Callbacks).@"struct".fields) |field| {
-        @field(cbs, field.name) = comptime makeField(App, field);
+    const info = @typeInfo(Callbacks).@"struct";
+    inline for (info.field_names, info.field_types) |name, Field| {
+        @field(cbs, name) = comptime makeField(App, name, Field);
     }
     return cbs;
 }
 
-fn makeField(comptime App: type, comptime field: std.builtin.Type.StructField) field.type {
-    const OptFn = field.type;
+fn makeField(comptime App: type, comptime name: []const u8, comptime OptFn: type) OptFn {
     if (@typeInfo(OptFn) != .optional)
-        @compileError("makeNativeActivityGlue: field " ++ field.name ++ " is not optional");
+        @compileError("makeNativeActivityGlue: field " ++ name ++ " is not optional");
     const FnPtr = @typeInfo(OptFn).optional.child;
     if (@typeInfo(FnPtr) != .pointer)
-        @compileError("makeNativeActivityGlue: field " ++ field.name ++ " is not a fn pointer");
+        @compileError("makeNativeActivityGlue: field " ++ name ++ " is not a fn pointer");
     const FnT = @typeInfo(FnPtr).pointer.child;
     const fi = @typeInfo(FnT);
     if (fi != .@"fn")
-        @compileError("makeNativeActivityGlue: field " ++ field.name ++ " is not a fn");
-    const params = fi.@"fn".params;
+        @compileError("makeNativeActivityGlue: field " ++ name ++ " is not a fn");
+    const params = fi.@"fn".param_types;
     if (params.len < 1) @compileError("callback must take *ANativeActivity");
-    const Activity = params[0].type.?;
+    const Activity = params[0].?;
 
-    if (std.mem.eql(u8, field.name, "onDestroy")) {
+    if (std.mem.eql(u8, name, "onDestroy")) {
         return &DestroyThunk(App, Activity).cb;
     }
-    if (std.mem.eql(u8, field.name, "onSaveInstanceState")) {
+    if (std.mem.eql(u8, name, "onSaveInstanceState")) {
         if (!@hasDecl(App, "onSaveInstanceState")) return null;
-        const SizePtr = params[1].type.?;
-        return &SaveThunk(App, Activity, SizePtr).cb;
+        const SizePtr = params[1].?;
+        return &SaveThunk(App, Activity, SizePtr, fi.@"fn".return_type.?).cb;
     }
 
-    if (!@hasDecl(App, field.name)) return null;
+    if (!@hasDecl(App, name)) return null;
 
     return switch (params.len) {
-        1 => &Thunk1(App, field.name, Activity).cb,
-        2 => &Thunk2(App, field.name, Activity, params[1].type.?).cb,
-        3 => &Thunk3(App, field.name, Activity, params[1].type.?, params[2].type.?).cb,
-        else => @compileError("unsupported callback arity for " ++ field.name),
+        1 => &Thunk1(App, name, Activity).cb,
+        2 => &Thunk2(App, name, Activity, params[1].?).cb,
+        3 => &Thunk3(App, name, Activity, params[1].?, params[2].?).cb,
+        else => @compileError("unsupported callback arity for " ++ name),
     };
 }
 
 fn appFromActivity(comptime App: type, activity: anytype) ?*App {
-    const instance = activity.instance orelse return null;
+    const instance = activity.*.instance orelse return null;
     return @ptrCast(@alignCast(instance));
 }
 
@@ -112,8 +112,8 @@ fn Thunk2(comptime App: type, comptime name: []const u8, comptime Activity: type
             // c_int for "hasFocus" gets forwarded as bool for ergonomics when
             // the App method opts into bool; otherwise pass the raw value.
             const Method = @TypeOf(@field(App, name));
-            const mp = @typeInfo(Method).@"fn".params;
-            if (mp.len == 2 and mp[1].type == bool and A1 == c_int) {
+            const mp = @typeInfo(Method).@"fn".param_types;
+            if (mp.len == 2 and mp[1] == bool and A1 == c_int) {
                 handleReturn(name, @call(.auto, @field(App, name), .{ app, a1 != 0 }));
             } else {
                 handleReturn(name, @call(.auto, @field(App, name), .{ app, a1 }));
@@ -141,17 +141,90 @@ fn DestroyThunk(comptime App: type, comptime Activity: type) type {
     };
 }
 
-fn SaveThunk(comptime App: type, comptime Activity: type, comptime SizePtr: type) type {
+fn SaveThunk(comptime App: type, comptime Activity: type, comptime SizePtr: type, comptime Return: type) type {
     return struct {
-        fn cb(activity: Activity, out_size: SizePtr) callconv(.c) ?[*]u8 {
+        fn cb(activity: Activity, out_size: SizePtr) callconv(.c) Return {
             out_size.* = 0;
             const app = appFromActivity(App, activity) orelse return null;
             const optional_slice: ?[]u8 = app.onSaveInstanceState(std.heap.c_allocator);
             if (optional_slice) |slice| {
                 out_size.* = slice.len;
-                return slice.ptr;
+                return @ptrCast(slice.ptr);
             }
+
             return null;
         }
     };
+}
+
+test "callback reflection forwards arguments and preserves absent callbacks" {
+    const Activity = extern struct { instance: ?*anyopaque = null };
+    const App = struct {
+        started: bool = false,
+        focused: bool = false,
+        width: c_int = 0,
+        height: c_int = 0,
+
+        pub fn onStart(self: *@This()) void {
+            self.started = true;
+        }
+        pub fn onWindowFocusChanged(self: *@This(), focused: bool) void {
+            self.focused = focused;
+        }
+        pub fn onResize(self: *@This(), width: c_int, height: c_int) void {
+            self.width = width;
+            self.height = height;
+        }
+    };
+    inline for (.{ *Activity, [*c]Activity }) |ActivityPtr| {
+        const Callbacks = extern struct {
+            onStart: ?*const fn (ActivityPtr) callconv(.c) void,
+            onWindowFocusChanged: ?*const fn (ActivityPtr, c_int) callconv(.c) void,
+            onResize: ?*const fn (ActivityPtr, c_int, c_int) callconv(.c) void,
+            onPause: ?*const fn (ActivityPtr) callconv(.c) void,
+        };
+        var app: App = .{};
+        var activity: Activity = .{ .instance = &app };
+        const callbacks = make(App, Callbacks);
+        try std.testing.expect(callbacks.onPause == null);
+        callbacks.onStart.?(&activity);
+        callbacks.onWindowFocusChanged.?(&activity, 1);
+        callbacks.onResize.?(&activity, 640, 480);
+        try std.testing.expect(app.started and app.focused);
+        try std.testing.expectEqual(@as(c_int, 640), app.width);
+        try std.testing.expectEqual(@as(c_int, 480), app.height);
+        activity.instance = null;
+        callbacks.onResize.?(&activity, 1, 1);
+        try std.testing.expectEqual(@as(c_int, 640), app.width);
+    }
+}
+
+test "saved-state thunk preserves the NDK opaque pointer return ABI" {
+    const Activity = extern struct { instance: ?*anyopaque = null };
+    const App = struct {
+        save: bool = false,
+
+        pub fn onSaveInstanceState(self: *@This(), allocator: std.mem.Allocator) ?[]u8 {
+            if (!self.save) return null;
+            return allocator.dupe(u8, "state") catch @panic("OOM");
+        }
+    };
+    inline for (.{ *Activity, [*c]Activity }) |ActivityPtr| {
+        inline for (.{ ?[*]u8, ?*anyopaque }) |SavedPtr| {
+            const Callbacks = extern struct {
+                onSaveInstanceState: ?*const fn (ActivityPtr, [*c]usize) callconv(.c) SavedPtr,
+            };
+            var app: App = .{};
+            var activity: Activity = .{ .instance = &app };
+            const callbacks = make(App, Callbacks);
+            var size: usize = 123;
+            try std.testing.expect(callbacks.onSaveInstanceState.?(&activity, &size) == null);
+            try std.testing.expectEqual(@as(usize, 0), size);
+            app.save = true;
+            const saved = callbacks.onSaveInstanceState.?(&activity, &size) orelse return error.TestUnexpectedResult;
+            const bytes: [*]u8 = @ptrCast(saved);
+            defer std.heap.c_allocator.free(bytes[0..size]);
+            try std.testing.expectEqualStrings("state", bytes[0..size]);
+        }
+    }
 }

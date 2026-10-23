@@ -1,4 +1,8 @@
 # Raylib Example
+
+The example requires Zig 0.17, like the SDK, and pins the Zig 0.17-compatible
+`cataggar/raylib-zig` (`d8dadf8e`) and `cataggar/raylib` (`67cd36d7`) packages.
+
 **Note**:
 Due to [an upstream bug](https://github.com/ziglang/zig/issues/20476), you will probably receive a warning (or multiple warnings if building for multiple targets) like this:
 ```
@@ -56,5 +60,4 @@ Bash (app must be running, logs everything by the process including modules)
 ```sh
 adb logcat --pid=`adb shell pidof -s com.zig.raylib`
 ```
-
 

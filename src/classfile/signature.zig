@@ -148,7 +148,7 @@ const Parser = struct {
         return switch (c) {
             'B', 'C', 'D', 'F', 'I', 'J', 'S', 'Z' => blk: {
                 p.pos += 1;
-                break :blk TypeSig{ .base = @enumFromInt(c) };
+                break :blk TypeSig{ .base = @fromBackingInt(@intCast(c)) };
             },
             else => try p.parseRefType(),
         };

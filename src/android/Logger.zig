@@ -86,7 +86,7 @@ fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Write
 
 pub fn logString(android_log_level: Level, text: []const u8) void {
     _ = ndk.__android_log_print(
-        @intFromEnum(android_log_level),
+        @backingInt(android_log_level),
         comptime if (package_name.len == 0) null else package_name.ptr,
         "%.*s",
         text.len,

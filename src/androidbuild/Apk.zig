@@ -13,9 +13,7 @@ const getAndroidTriple = androidbuild.getAndroidTriple;
 const runNameContext = androidbuild.runNameContext;
 const printErrorsAndExit = androidbuild.printErrorsAndExit;
 const BuildTools = @import("BuildTools.zig");
-const BuiltinOptionsUpdate = @import("BuiltinOptionsUpdate.zig");
-const D8Glob = @import("D8Glob.zig");
-const DirectoryFileInput = @import("DirectoryFileInput.zig");
+const HostTool = @import("host_tool.zig");
 const Ndk = @import("Ndk.zig");
 const Sdk = @import("tools.zig");
 const KeyStore = Sdk.KeyStore;
@@ -157,7 +155,7 @@ pub const AddJavaSourceFileOption = struct {
 /// of your APK.
 pub fn addJavaSourceFile(apk: *Apk, options: AddJavaSourceFileOption) void {
     const b = apk.b;
-    apk.java_files.append(b.allocator, options.file.dupe(b)) catch @panic("OOM");
+    apk.java_files.append(b.allocator, options.file.dupe(b.graph)) catch @panic("OOM");
 }
 
 pub const AddJavaSourceFilesOptions = struct {
@@ -207,7 +205,7 @@ fn addLibraryPaths(apk: *Apk, module: *std.Build.Module) void {
     // These *must* be in order of API version, then architecture, then non-arch specific otherwise
     // when starting an *.so from Android or an emulator you can get an error message like this:
     // - "java.lang.UnsatisfiedLinkError: dlopen failed: TLS symbol "_ZZN8gwp_asan15getThreadLocalsEvE6Locals" in dlopened"
-    const android_api_version: u32 = @intFromEnum(apk.api_level);
+    const android_api_version: u32 = @backingInt(apk.api_level);
 
     // NOTE(jae): 2025-03-09
     // Resolve issue where building SDL2 gets the following error for 'arm-linux-androideabi'
@@ -311,7 +309,7 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
     const debug_apk: bool = blk: {
         for (apk.artifacts.items) |root_artifact| {
             if (root_artifact.root_module.optimize) |optimize| {
-                if (optimize == .Debug) {
+                if (optimize == .debug) {
                     break :blk true;
                 }
             }
@@ -324,7 +322,7 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
         .cwd_relative = b.pathResolve(&[_][]const u8{
             apk.sdk.android_sdk_path,
             "platforms",
-            b.fmt("android-{d}", .{@intFromEnum(apk.api_level)}),
+            b.fmt("android-{d}", .{@backingInt(apk.api_level)}),
             "android.jar",
         }),
     };
@@ -349,7 +347,7 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
         aapt2link.addArg("-I");
         aapt2link.addFileArg(root_jar);
 
-        if (b.verbose) {
+        if (b.graph.verbose) {
             aapt2link.addArg("-v");
         }
 
@@ -366,7 +364,7 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
 
         aapt2link.addArgs(&[_][]const u8{
             "--target-sdk-version",
-            b.fmt("{d}", .{@intFromEnum(apk.api_level)}),
+            b.fmt("{d}", .{@backingInt(apk.api_level)}),
         });
 
         // NOTE(jae): 2024-10-02
@@ -387,8 +385,8 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
             switch (asset) {
                 .directory => |asset_dir_path| {
                     aapt2link.addArg("-A");
-                    aapt2link.addDirectoryArg(asset_dir_path.source);
-                    DirectoryFileInput.create(b, aapt2link, asset_dir_path.source);
+                    const files = b.addWriteFiles();
+                    aapt2link.addDirectoryArg(files.addCopyDirectory(asset_dir_path.source, "assets", .{}));
                 },
             }
         }
@@ -409,8 +407,8 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
 
                         // add directory
                         aapt2compile.addArg("--dir");
-                        aapt2compile.addDirectoryArg(resource_directory.source);
-                        DirectoryFileInput.create(b, aapt2compile, resource_directory.source);
+                        const files = b.addWriteFiles();
+                        aapt2compile.addDirectoryArg(files.addCopyDirectory(resource_directory.source, "res", .{}));
 
                         aapt2compile.addArg("-o");
                         const resources_flat_zip_file = aapt2compile.addOutputFileArg("resource_dir.flat.zip");
@@ -442,10 +440,7 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
         break :blk aapt2_package_name_file;
     };
 
-    const android_builtin = blk: {
-        const android_builtin_options = BuiltinOptionsUpdate.create(b, package_name_file);
-        break :blk android_builtin_options.createModule();
-    };
+    const android_builtin = HostTool.builtinModule(b, package_name_file);
 
     // We could also use that information to create easy to use Zig step like
     // - zig build adb-uninstall (adb uninstall "com.zig.sdl2")
@@ -474,6 +469,7 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
             .cwd_relative => |sub_path| sub_path,
             .generated => @panic("invalid precompiled library, cannot be generated"),
             .dependency => |dep| dep.sub_path,
+            .relative => |relative| relative.sub_path,
         });
         _ = apk_files.addCopyFile(precompiled_library.path, b.fmt("lib/{s}/{s}", .{ so_dir, precompiled_lib_basename }));
     }
@@ -499,32 +495,37 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
             artifact.root_module.addImport("android_builtin", android_builtin);
         }
 
-        var modules_it = artifact.root_module.import_table.iterator();
-        while (modules_it.next()) |entry| {
-            const module = entry.value_ptr.*;
+        for (artifact.root_module.getGraph().modules) |module| {
             if (module.import_table.get("android_builtin")) |_| {
                 module.addImport("android_builtin", android_builtin);
             }
         }
 
         // Find TranslateC dependencies and add system path
-        var iter = artifact.root_module.import_table.iterator();
-        while (iter.next()) |it| {
-            const module = it.value_ptr.*;
+        for (artifact.root_module.getGraph().modules) |module| {
             const root_source_file = module.root_source_file orelse continue;
             switch (root_source_file) {
                 .generated => |gen| {
-                    const step = gen.file.step;
-                    if (step.id != .translate_c) {
-                        continue;
-                    }
+                    const step = b.graph.generated_files.items[@backingInt(gen.index)];
                     const c_translate_target = module.resolved_target orelse continue;
                     if (!c_translate_target.result.abi.isAndroid()) {
                         continue;
                     }
-                    const translate_c: *std.Build.Step.TranslateC = @fieldParentPtr("step", step);
-                    translate_c.addIncludePath(.{ .cwd_relative = apk.ndk.include_path });
-                    translate_c.addSystemIncludePath(.{ .cwd_relative = apk.getSystemIncludePath(c_translate_target) });
+                    switch (step.tag) {
+                        .translate_c => {
+                            const translate_c: *std.Build.Step.TranslateC = @fieldParentPtr("step", step);
+                            translate_c.addIncludePath(.{ .cwd_relative = apk.ndk.include_path });
+                            translate_c.addSystemIncludePath(.{ .cwd_relative = apk.getSystemIncludePath(c_translate_target) });
+                        },
+                        .run => {
+                            const run: *std.Build.Step.Run = @fieldParentPtr("step", step);
+                            const producer = run.producer orelse continue;
+                            if (!std.mem.eql(u8, producer.name, "translate-c")) continue;
+                            run.addPrefixedDirectoryArg("-I", .{ .cwd_relative = apk.ndk.include_path });
+                            run.addPrefixedDirectoryArg("-isystem", .{ .cwd_relative = apk.getSystemIncludePath(c_translate_target) });
+                        },
+                        else => {},
+                    }
                 },
                 else => continue,
             }
@@ -574,7 +575,7 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
 
         // NOTE(jae): 2026-03-01
         // If we have verbose logging on, telling us about deprecated Java files
-        if (b.verbose) {
+        if (b.graph.verbose) {
             javac_cmd.addArg("-Xlint:deprecation");
         }
 
@@ -603,8 +604,14 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
         // d8.addArg("--min-api");
         // d8.addArg(number_as_string);
 
-        // add each output *.class file
-        D8Glob.create(b, d8, java_classes_output_dir, root_jar);
+        // D8 accepts a JAR, avoiding make-time argument mutation and long
+        // Windows command lines while retaining every generated class.
+        const jar_classes = b.addSystemCommand(&.{ apk.sdk.java_tools.jar, "--create", "--file" });
+        const classes_jar = jar_classes.addOutputFileArg("classes.jar");
+        jar_classes.addArg("-C");
+        jar_classes.addDirectoryArg(java_classes_output_dir);
+        jar_classes.addArg(".");
+        d8.addFileArg(classes_jar);
 
         // ie. android_sdk/platforms/android-{api-level}/android.jar
         d8.addArg("--lib");
@@ -625,7 +632,7 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
             apk.sdk.java_tools.jar,
         });
         jar.setName(runNameContext("jar (unzip resources.apk)"));
-        if (b.verbose) {
+        if (b.graph.verbose) {
             jar.addArg("--verbose");
         }
 
@@ -683,7 +690,7 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
         // -M, --no-manifest = Do not create a manifest file for the entries
         // -0, --no-compress = Store only; use no ZIP compression
         const compress_zip_arg = "-cfM";
-        if (b.verbose) jar.addArg(compress_zip_arg ++ "v") else jar.addArg(compress_zip_arg);
+        if (b.graph.verbose) jar.addArg(compress_zip_arg ++ "v") else jar.addArg(compress_zip_arg);
         const output_zip_file = jar.addOutputFileArg("compiled_code.zip");
         jar.addArg(".");
 
@@ -710,7 +717,7 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
         // -M, --no-manifest = Do not create a manifest file for the entries
         // -0, --no-compress = Store only; use no ZIP compression
         const update_zip_arg = "-ufM0";
-        if (b.verbose) jar.addArg(update_zip_arg ++ "v") else jar.addArg(update_zip_arg);
+        if (b.graph.verbose) jar.addArg(update_zip_arg ++ "v") else jar.addArg(update_zip_arg);
         jar.addFileArg(zip_file);
         jar.addArg(".");
         break :blk &jar.step;
@@ -740,7 +747,7 @@ fn doInstallApk(apk: *Apk) Allocator.Error!*Step.InstallFile {
         // Source: https://developer.android.com/tools/zipalign (10th Sept, 2024)
         //
         // Example: "zipalign -P 16 -f -v 4 infile.apk outfile.apk"
-        if (b.verbose) {
+        if (b.graph.verbose) {
             zipalign.addArg("-v");
         }
         zipalign.addArgs(&.{
@@ -955,7 +962,7 @@ fn updateSharedLibraryOptions(artifact: *std.Build.Step.Compile) void {
 
     if (artifact.root_module.optimize) |optimize| {
         // NOTE(jae): ZigAndroidTemplate used: (optimize == .ReleaseSmall);
-        artifact.root_module.strip = optimize == .ReleaseSmall;
+        artifact.root_module.strip = optimize == .small;
     }
 
     // TODO(jae): 2024-09-19 - Copy-pasted from https://github.com/ikskuh/ZigAndroidTemplate/blob/master/Sdk.zig
@@ -1009,7 +1016,13 @@ fn updatePathWithJdk(apk: *Apk, run: *std.Build.Step.Run) Allocator.Error!void {
         });
         try env_map.put("PATH", new_path);
     } else {
-        run.addPathDir(b.pathJoin(&.{ apk.sdk.jdk_path, "bin" }));
+        const environ = run.getEnvMap();
+        const path = environ.get("PATH") orelse "";
+        run.setEnvironmentVariable("PATH", b.fmt("{s}{c}{s}", .{
+            b.pathJoin(&.{ apk.sdk.jdk_path, "bin" }),
+            std.fs.path.delimiter,
+            path,
+        }));
     }
 }
 
