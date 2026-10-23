@@ -97,6 +97,7 @@ Option B. Copy-paste the dependency into your project directly and put in a `thi
 
 * [minimal](examples/minimal): This is based off ZigAndroidTemplate's minimal example.
 * [SDL2](examples/sdl2): This is based off Andrew Kelly's SDL Zig Demo but modified to run on Android, Windows, Mac and Linux.
+* [raylib](examples/raylib): Raylib example pinned to Zig 0.17-compatible `cataggar/raylib-zig` (`d8dadf8e`) and `cataggar/raylib` (`67cd36d7`).
 
 ## Workarounds
 
